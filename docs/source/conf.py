@@ -15,7 +15,7 @@ sys.path.append(os.path.abspath("src/webshocket"))
 project = "webshocket"
 copyright = "2025, LeftandRights"
 author = "LeftandRights"
-release = "0.1.0"
+release = "0.1.5"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
