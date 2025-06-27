@@ -32,11 +32,11 @@ class Packet(BaseModel):
         channel (str | None): The channel associated with the packet.
         timestamp (float): The timestamp when the packet was created.
         correlation_id (uuid.UUID | None): The correlation ID associated with the packet.
-        rpc_data (Union[RPCRequest, RPCResponse, None]): Optional RPC request or response data.
+        rpc (Union[RPCRequest, RPCResponse, None]): Optional RPC request or response data.
     """
 
     data: Optional[str | bytes] = None
-    rpc_data: Optional[Union[RPCRequest, RPCResponse]] = None
+    rpc: Optional[Union[RPCRequest, RPCResponse]] = None
 
     source: PacketSource
     channel: Optional[str] = ""
@@ -45,7 +45,7 @@ class Packet(BaseModel):
 
     @model_validator(mode="after")
     def validate(self) -> Self:
-        if self.rpc_data is None and self.data is None:
+        if self.rpc is None and self.data is None:
             raise ValueError("Data must be provided.") from None
 
         return self
