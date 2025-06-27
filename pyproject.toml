@@ -1,6 +1,6 @@
 [project]
 name = "webshocket"
-version = "0.1.0"
+version = "0.1.5"
 description = "An enhanced module to provide a robust, socket-like abstraction for WebSockets"
 readme = "README.md"
 requires-python = ">=3.13"
