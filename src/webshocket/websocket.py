@@ -70,7 +70,9 @@ class server:
         packet: Packet
 
         if not isinstance(data, (str, bytes)):
-            raise TypeError("Data to be converted must be a string or bytes, not %s" % type(data))
+            raise TypeError(
+                "Data to be converted must be a string or bytes, not %s" % type(data)
+            )
 
         try:
             packet = Packet.model_validate_json(data)
@@ -85,7 +87,12 @@ class server:
 
         return packet
 
-    async def _handle_rpc_request(self, handler: WebSocketHandler, connection: "ClientConnection", rpc_request: RPCRequest) -> None:
+    async def _handle_rpc_request(
+        self,
+        handler: WebSocketHandler,
+        connection: "ClientConnection",
+        rpc_request: RPCRequest,
+    ) -> None:
         """
         Handles an incoming RPC request by dispatching it to the appropriate
         RPC method on the handler and sending back a response.
@@ -102,11 +109,13 @@ class server:
         result: Any = None
 
         try:
-            rpc_func = getattr(handler, method_name, None)
+            rpc_func = handler._rpc_methods.get(method_name, None)
 
             if not rpc_func:
                 await connection._send_rpc_response(  # type: ignore
-                    RPCResponse(call_id=call_id, error=f"RPC method '{method_name}' not found."),
+                    RPCResponse(
+                        call_id=call_id, error=f"RPC method '{method_name}' not found."
+                    ),
                 )
                 return
 
@@ -122,7 +131,7 @@ class server:
             error_message = str(rcp_error)
 
         except Exception as e:
-            error_message = f"Server error: {type(e).__name__}: {e}"
+            error_message = f"Server error ({type(e).__name__}): {e}"
             import traceback
 
             traceback.print_exc()
@@ -165,12 +174,18 @@ class server:
                 async for data in websocket_protocol:
                     packet = self._to_packet(data)
 
-                    if packet.source == PacketSource.RPC and isinstance(packet.rpc_data, RPCRequest):
-                        await self._handle_rpc_request(self.handler, _websocket, packet.rpc_data)
+                    if packet.source == PacketSource.RPC and isinstance(
+                        packet.rpc, RPCRequest
+                    ):
+                        await self._handle_rpc_request(
+                            self.handler, _websocket, packet.rpc
+                        )
 
                     await self.handler.on_receive(_websocket, packet)
 
-        except websockets.exceptions.ConnectionClosedError:  # Expected error when client disconnects.
+        except (
+            websockets.exceptions.ConnectionClosedError
+        ):  # Expected error when client disconnects.
             pass
 
         finally:
@@ -197,7 +212,9 @@ class server:
         """
 
         if not isinstance(self.handler, DefaultWebSocketHandler):
-            raise TypeError("Cannot use manual accept() when handler callback is active.")
+            raise TypeError(
+                "Cannot use manual accept() when handler callback is active."
+            )
 
         if self._server is None:
             raise WebSocketError("Error getting client: server is not started")
@@ -262,7 +279,9 @@ class server:
         try:
             return getattr(self.handler, name)
         except AttributeError:
-            raise AttributeError(f"'{type(self).__name__}' object and its handler have no attribute '{name}'") from None
+            raise AttributeError(
+                f"'{type(self).__name__}' object and its handler have no attribute '{name}'"
+            ) from None
 
     async def __aenter__(self) -> Self:
         """
@@ -317,13 +336,17 @@ class client:
         self.uri = uri
 
         if not (uri.startswith("ws://") or uri.startswith("wss://")):
-            raise ValueError("Please include the websocket protocol `wss://` or `ws://` on the address")
+            raise ValueError(
+                "Please include the websocket protocol `wss://` or `ws://` on the address"
+            )
 
         if self.uri.startswith("wss://"):
             self._context = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH)
 
             if ca_cert_path:
-                self._context.load_verify_locations(cafile=pathlib.Path(ca_cert_path).resolve())
+                self._context.load_verify_locations(
+                    cafile=pathlib.Path(ca_cert_path).resolve()
+                )
 
     async def _handler(self) -> None:
         """Internal handler for receiving messages from the WebSocket server.
@@ -413,7 +436,9 @@ class client:
                 await asyncio.sleep(delay)
 
         await self.close()
-        raise ConnectionFailedError("All connection attempts failed after multiple retries.")
+        raise ConnectionFailedError(
+            "All connection attempts failed after multiple retries."
+        )
 
     async def send(self, data: Union[str | bytes, Packet]) -> None:
         """Sends data over the WebSocket connection.
@@ -451,7 +476,7 @@ class client:
             raise WebSocketError("Cannot send RPC: client is not connected.")
 
         packet: Packet = Packet(
-            rpc_data=RPCRequest(
+            rpc=RPCRequest(
                 method=method_name,
                 args=args,
                 kwargs=kwargs,
@@ -492,8 +517,8 @@ class client:
             try:
                 packet: Packet = Packet.model_validate_json(data)
 
-                if isinstance(packet.rpc_data, RPCResponse):
-                    packet.data = packet.rpc_data.result or packet.rpc_data.error
+                if isinstance(packet.rpc, RPCResponse):
+                    packet.data = packet.rpc.result or packet.rpc.error
 
             except pydantic.ValidationError:
                 packet: Packet = Packet(
