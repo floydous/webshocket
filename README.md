@@ -3,7 +3,10 @@
 [![PyPI Downloads](https://pepy.tech/badge/webshocket)](https://pepy.tech/project/webshocket)
 [![PyPI version](https://img.shields.io/pypi/v/webshocket)](https://pypi.org/project/webshocket/)
 [![License](https://img.shields.io/badge/License-MIT-blue)](https://opensource.org/license/mit)
-[![Code style: black](https://img.shields.io/badge/code_style-ruff-dafd5e)](https://github.com/psf/black)
+[![Code style: black](https://img.shields.io/badge/code_style-ruff-dafd5e)](https://github.com/astral-sh/ruff)
+
+> [!WARNING]
+> Webshocket is still unfinished and is not ready for proper-project use. It is advised to not expect any stability from this project until it reaches a stable release (>=v1.0.0)
 
 # Webshocket
 
