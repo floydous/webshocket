@@ -15,7 +15,9 @@ class WebSocketHandler:
     def __init__(self) -> None:
         self.clients: Set["ClientConnection"] = set()
         self.channels: Dict[str, Set["ClientConnection"]] = collections.defaultdict(set)
-        self.reversed_channels: Dict["ClientConnection", Set[str]] = collections.defaultdict(set)
+        self.reversed_channels: Dict["ClientConnection", Set[str]] = (
+            collections.defaultdict(set)
+        )
         self._rpc_methods: Dict[str, Callable[..., Any]] = dict()
 
         for name in dir(self):
@@ -25,8 +27,6 @@ class WebSocketHandler:
                 continue
 
             self._rpc_methods[getattr(method, "_rpc_alias_name", name)] = method
-
-        print(self._rpc_methods)
 
     async def on_connect(self, websocket: "ClientConnection"):
         """(Optional) Called when a new client connects."""
@@ -63,7 +63,9 @@ class WebSocketHandler:
                 source=PacketSource.BROADCAST,
             )
 
-        tasks: list[Awaitable[None]] = [client.send(data) for client in self.clients if client not in exclude_set]
+        tasks: list[Awaitable[None]] = [
+            client.send(data) for client in self.clients if client not in exclude_set
+        ]
 
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
@@ -95,7 +97,11 @@ class WebSocketHandler:
                     channel=channel,
                 )
 
-            tasks: list[Awaitable[None]] = [client.send(data) for client in self.channels[channel] if client not in exclude_set]
+            tasks: list[Awaitable[None]] = [
+                client.send(data)
+                for client in self.channels[channel]
+                if client not in exclude_set
+            ]
 
             if tasks:
                 await asyncio.gather(*tasks, return_exceptions=True)
@@ -117,7 +123,9 @@ class WebSocketHandler:
 
         self.reversed_channels[client].update(channel)
 
-    def unsubscribe(self, client: "ClientConnection", channel: str | Iterable[str]) -> None:
+    def unsubscribe(
+        self, client: "ClientConnection", channel: str | Iterable[str]
+    ) -> None:
         """Unsubscribes a client from one or more channels.
 
         Args:

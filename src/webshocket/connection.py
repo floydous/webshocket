@@ -21,7 +21,9 @@ class ClientConnection:
     in an internal `session_state` dictionary.
     """
 
-    def __init__(self, websocket_protocol: ServerConnection, handler: "WebSocketHandler") -> None:
+    def __init__(
+        self, websocket_protocol: ServerConnection, handler: "WebSocketHandler"
+    ) -> None:
         """
         Initializes a new ClientConnection instance.
 
@@ -70,7 +72,9 @@ class ClientConnection:
             )
 
         else:
-            raise TypeError("Data for send must be a Packet, str, or bytes, not %s" % type(data))
+            raise TypeError(
+                "Data for send must be a Packet, str, or bytes, not %s" % type(data)
+            )
 
         await self._protocol.send(packet.model_dump_json())
 
@@ -85,7 +89,7 @@ class ClientConnection:
         packet = Packet(
             data=rpc_response.model_dump_json(),
             source=PacketSource.RPC,
-            rpc_data=rpc_response,
+            rpc=rpc_response,
         )
 
         await self._protocol.send(packet.model_dump_json())
@@ -126,10 +130,14 @@ class ClientConnection:
                 return packet
 
             except pydantic.ValidationError as err:
-                raise MessageError("Received malformed or invalid packet data.") from err
+                raise MessageError(
+                    "Received malformed or invalid packet data."
+                ) from err
 
         except asyncio.TimeoutError:
-            raise TimeoutError(f"Receive operation timed out after {timeout} seconds.") from None
+            raise TimeoutError(
+                f"Receive operation timed out after {timeout} seconds."
+            ) from None
 
     def subscribe(self, channel: Union[str, Iterable[str]]) -> None:
         """A shortcut method for this connection to join one or more channels.
@@ -168,7 +176,9 @@ class ClientConnection:
             try:
                 return getattr(self._protocol, name)
             except AttributeError:
-                raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'") from None
+                raise AttributeError(
+                    f"'{type(self).__name__}' object has no attribute '{name}'"
+                ) from None
 
     def __delattr__(self, name: str) -> None:
         """Called when deleting an attribute (e.g., `del connection.username`)."""
@@ -197,7 +207,13 @@ class ClientConnection:
 
     def __repr__(self) -> str:
         """Returns a string representation of the ClientConnection object."""
-        return f"<{type(self).__name__}(" f"uid={self.uid}, " f"remote_address='{self.remote_address}', " f"state={self.session_state}" f")>"
+        return (
+            f"<{type(self).__name__}("
+            f"uid={self.uid}, "
+            f"remote_address='{self.remote_address}', "
+            f"state={self.session_state}"
+            f")>"
+        )
 
     def __hash__(self):
         """Returns a hash value for the ClientConnection object."""
