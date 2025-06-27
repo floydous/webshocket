@@ -70,9 +70,7 @@ class server:
         packet: Packet
 
         if not isinstance(data, (str, bytes)):
-            raise TypeError(
-                "Data to be converted must be a string or bytes, not %s" % type(data)
-            )
+            raise TypeError("Data to be converted must be a string or bytes, not %s" % type(data))
 
         try:
             packet = Packet.model_validate_json(data)
@@ -113,9 +111,7 @@ class server:
 
             if not rpc_func:
                 await connection._send_rpc_response(  # type: ignore
-                    RPCResponse(
-                        call_id=call_id, error=f"RPC method '{method_name}' not found."
-                    ),
+                    RPCResponse(call_id=call_id, error=f"RPC method '{method_name}' not found."),
                 )
                 return
 
@@ -174,18 +170,12 @@ class server:
                 async for data in websocket_protocol:
                     packet = self._to_packet(data)
 
-                    if packet.source == PacketSource.RPC and isinstance(
-                        packet.rpc, RPCRequest
-                    ):
-                        await self._handle_rpc_request(
-                            self.handler, _websocket, packet.rpc
-                        )
+                    if packet.source == PacketSource.RPC and isinstance(packet.rpc, RPCRequest):
+                        await self._handle_rpc_request(self.handler, _websocket, packet.rpc)
 
                     await self.handler.on_receive(_websocket, packet)
 
-        except (
-            websockets.exceptions.ConnectionClosedError
-        ):  # Expected error when client disconnects.
+        except websockets.exceptions.ConnectionClosedError:  # Expected error when client disconnects.
             pass
 
         finally:
@@ -212,9 +202,7 @@ class server:
         """
 
         if not isinstance(self.handler, DefaultWebSocketHandler):
-            raise TypeError(
-                "Cannot use manual accept() when handler callback is active."
-            )
+            raise TypeError("Cannot use manual accept() when handler callback is active.")
 
         if self._server is None:
             raise WebSocketError("Error getting client: server is not started")
@@ -279,9 +267,7 @@ class server:
         try:
             return getattr(self.handler, name)
         except AttributeError:
-            raise AttributeError(
-                f"'{type(self).__name__}' object and its handler have no attribute '{name}'"
-            ) from None
+            raise AttributeError(f"'{type(self).__name__}' object and its handler have no attribute '{name}'") from None
 
     async def __aenter__(self) -> Self:
         """
@@ -336,17 +322,13 @@ class client:
         self.uri = uri
 
         if not (uri.startswith("ws://") or uri.startswith("wss://")):
-            raise ValueError(
-                "Please include the websocket protocol `wss://` or `ws://` on the address"
-            )
+            raise ValueError("Please include the websocket protocol `wss://` or `ws://` on the address")
 
         if self.uri.startswith("wss://"):
             self._context = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH)
 
             if ca_cert_path:
-                self._context.load_verify_locations(
-                    cafile=pathlib.Path(ca_cert_path).resolve()
-                )
+                self._context.load_verify_locations(cafile=pathlib.Path(ca_cert_path).resolve())
 
     async def _handler(self) -> None:
         """Internal handler for receiving messages from the WebSocket server.
@@ -436,9 +418,7 @@ class client:
                 await asyncio.sleep(delay)
 
         await self.close()
-        raise ConnectionFailedError(
-            "All connection attempts failed after multiple retries."
-        )
+        raise ConnectionFailedError("All connection attempts failed after multiple retries.")
 
     async def send(self, data: Union[str | bytes, Packet]) -> None:
         """Sends data over the WebSocket connection.
@@ -462,7 +442,7 @@ class client:
         if isinstance(data, Packet):
             await self._protocol.send(data.model_dump_json())
 
-    async def send_rpc(self, method_name: str, *args, **kwargs) -> None:
+    async def send_rpc(self, method_name: str, *args, **kwargs) -> Self:
         """Sends an RPC message to the WebSocket server.
 
         Args:
@@ -485,6 +465,7 @@ class client:
         )
 
         await self._protocol.send(packet.model_dump_json())
+        return self
 
     async def recv(self, timeout: int | None = 30) -> Packet:
         """Receives data from the WebSocket connection.
