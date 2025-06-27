@@ -85,6 +85,8 @@ Webshocket is more than just a simple wrapper. It provides a framework for build
 
 - **Structured and Validated Data:** Enforce a strict data protocol by defining your message types with Pydantic. The library will automatically validate incoming packets, rejecting malformed or malicious data before your code ever sees it.
 
+- **Remote Procedure Calls (RPC):** Call server-side functions directly from your client! Define methods on your `WebSocketHandler` with the `@rpc_method` decorator, and Webshocket handles the magic of remote execution, making client-server interactions feel like local function calls.
+
 # Contributing
 
 Contributions are welcome! Please feel free to open an issue or submit a pull request on our GitHub repository.
