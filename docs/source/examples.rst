@@ -36,7 +36,7 @@ All server-side logic is defined in a class that inherits from ``webshocket.WebS
 
    async def main():
        # Initialize the server with a host, port, and your handler class.
-       server = webshocket.server("localhost", 8765, handler_class=EchoHandler)
+       server = webshocket.WebSocketServer("localhost", 8765, handler_class=EchoHandler)
 
        print("Starting echo server on ws://localhost:8765")
        # `async with` ensures the server is started and cleanly shut down.
@@ -110,7 +110,7 @@ Enabling encryption is a first-class feature. Simply generate a self-signed cert
    cert_info = {"cert": "cert.pem", "key": "key.pem"}
 
    # Pass the certificate info during server initialization
-   server = webshocket.server(
+   server = webshocket.WebSocketServer(
        "localhost", 8765, EchoHandler,
        certificate=cert_info
    )
@@ -178,3 +178,65 @@ The ``ClientConnection`` object acts as a dynamic "state bag," allowing you to a
                    await connection.send(f"You are logged in as {connection.username}")
                else:
                    await connection.send("You are not logged in.")
+
+Remote Procedure Call (RPC)
+----------------------------
+
+RPC enables a client to call a function or method on a server as if that function were part of the client's own code. The client doesn't need to know the network details (like IP addresses, ports, or how data is serialized) to make the call. The RPC mechanism handles all the "plumbing" behind the scenes.
+
+To expose a method on your `WebSocketHandler` as an RPC endpoint, use the `@rpc_method` decorator. The first argument of your RPC method must always be the `ClientConnection` object.
+
+.. code-block:: python
+   :linenos:
+
+   import asyncio
+   import webshocket
+   from webshocket.rpc import rpc_method
+
+   class RpcHandler(webshocket.WebSocketHandler):
+       @rpc_method()
+       async def echo(self, connection: webshocket.ClientConnection, message: str):
+           return f"RPC Echo: {message}"
+
+       @rpc_method(alias_name="sum_numbers")
+       async def add(self, connection: webshocket.ClientConnection, a: int, b: int):
+           return a + b
+
+   async def main():
+       server = webshocket.WebSocketServer("localhost", 5000, clientHandler=RpcHandler)
+       await server.start()
+
+       async with webshocket.WebSocketClient("ws://localhost:5000") as client:
+           # Call 'echo' RPC method
+           response = await client.send_rpc("echo", "Hello RPC!")
+           print(f"Echo response: {response.data}")
+
+           # Call 'add' RPC method using its alias 'sum_numbers'
+           response = await client.send_rpc("sum_numbers", 10, 20)
+           print(f"Sum response: {response.data}")
+
+       await server.close()
+
+   if __name__ == "__main__":
+       asyncio.run(main())
+
+            await client.send_rpc("sum_numbers", 10, 20)
+            response = await client.recv()
+
+            print(f"Sum response: {response.data}")
+
+        await server.close()
+
+
+    if __name__ == "__main__":
+        asyncio.run(main())
+
+This is the output of the code above:
+
+.. code-block:: text
+    :linenos:
+
+    Client connected
+    Echo response: RPC Echo: Hello RPC!
+    Sum response: 30
+    Client disconnected
