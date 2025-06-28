@@ -1,3 +1,13 @@
+[![docs](https://readthedocs.org/projects/web-shocket/badge/?style=flat)](https://web-shocket.readthedocs.io/)
+[![Build Status](https://github.com/floydous/webshocket/actions/workflows/tests.yml/badge.svg)](https://github.com/floydous/webshocket/actions/workflows/tests.yml)
+[![PyPI Downloads](https://pepy.tech/badge/webshocket)](https://pepy.tech/project/webshocket)
+[![PyPI version](https://img.shields.io/pypi/v/webshocket)](https://pypi.org/project/webshocket/)
+[![License](https://img.shields.io/badge/License-MIT-blue)](https://opensource.org/license/mit)
+[![Code style: ruff](https://img.shields.io/badge/code_style-ruff-dafd5e)](https://github.com/astral-sh/ruff)
+
+> [!WARNING]
+> Webshocket is still unfinished and is not ready for proper-project use. It is advised to not expect any stability from this project until it reaches a stable release (>=v0.5.0)
+
 # Webshocket
 
 Webshocket is a Python library that handles the boilerplate of building WebSocket applications. It provides a high-level, object-oriented layer on top of the excellent websockets library, designed to let you focus on your application's features instead of its plumbing.
