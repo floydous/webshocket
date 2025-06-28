@@ -13,8 +13,8 @@ sys.path.append(os.path.abspath("../.."))
 sys.path.append(os.path.abspath("src/webshocket"))
 
 project = "webshocket"
-copyright = "2025, LeftandRights"
-author = "LeftandRights"
+copyright = "2025, Floydous"
+author = "Floydous"
 release = "0.1.5"
 
 # -- General configuration ---------------------------------------------------

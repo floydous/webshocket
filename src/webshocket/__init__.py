@@ -4,7 +4,7 @@ client and server abstractions.
 """
 
 __version__ = "0.1.5"
-__author__ = "LeftandRights"
+__author__ = "Floydous"
 __license__ = "MIT"
 
 from .handler import DefaultWebSocketHandler, WebSocketHandler
