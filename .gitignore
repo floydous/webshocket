@@ -14,3 +14,4 @@ uv.lock
 /tests/personal_testing
 uv.lock
 /.vscode
+pyproject.toml.backup
