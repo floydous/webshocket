@@ -21,7 +21,6 @@ class _TestRpcHandler(webshocket.WebSocketHandler):
         if packet.source != PacketSource.RPC:
             await connection.send(f"Non-RPC Echo: {packet.data}")
         else:
-
             pass
 
     @rpc_method()

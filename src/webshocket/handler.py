@@ -2,7 +2,17 @@ import asyncio
 import collections
 
 from collections.abc import Awaitable
-from typing import TYPE_CHECKING, Optional, Set, Dict, Iterable, Union, Callable, Any
+from typing import (
+    TYPE_CHECKING,
+    Optional,
+    Set,
+    Dict,
+    Iterable,
+    Union,
+    Callable,
+    Any,
+)
+
 from .packets import Packet, PacketSource
 
 if TYPE_CHECKING:

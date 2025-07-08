@@ -9,7 +9,6 @@ from typing import Any
 
 
 class StateTestHandler(webshocket.WebSocketHandler):
-
     async def on_receive(self, connection: webshocket.ClientConnection, data: Any):
         try:
             command_data = json.loads(data.data)
@@ -49,9 +48,7 @@ async def test_session_state_set_and_get(state_server):
     server, uri = state_server
 
     async with webshocket.WebSocketClient(uri) as client:
-        await client.send(
-            json.dumps({"command": "set_state", "key": "username", "value": "alice"})
-        )
+        await client.send(json.dumps({"command": "set_state", "key": "username", "value": "alice"}))
         response = await client.recv()
         assert response.data == "OK: Set username to alice"
 
@@ -73,18 +70,11 @@ async def test_session_state_is_isolated_per_client(state_server):
     client_a_id = str(uuid.uuid4())
     client_b_id = str(uuid.uuid4())
 
-    async with (
-        webshocket.WebSocketClient(uri) as client_a,
-        webshocket.WebSocketClient(uri) as client_b,
-    ):
-        await client_a.send(
-            json.dumps({"command": "set_state", "key": "user_id", "value": client_a_id})
-        )
+    async with webshocket.WebSocketClient(uri) as client_a, webshocket.WebSocketClient(uri) as client_b:
+        await client_a.send(json.dumps({"command": "set_state", "key": "user_id", "value": client_a_id}))
         await client_a.recv()
 
-        await client_b.send(
-            json.dumps({"command": "set_state", "key": "user_id", "value": client_b_id})
-        )
+        await client_b.send(json.dumps({"command": "set_state", "key": "user_id", "value": client_b_id}))
         await client_b.recv()
 
         conn_a = next(
@@ -110,9 +100,7 @@ async def test_session_state_is_cleared_on_disconnect(state_server):
     server, uri = state_server
 
     async with webshocket.WebSocketClient(uri) as client:
-        await client.send(
-            json.dumps({"command": "set_state", "key": "status", "value": "active"})
-        )
+        await client.send(json.dumps({"command": "set_state", "key": "status", "value": "active"}))
         await client.recv()
         assert len(server.handler.clients) == 1
 
