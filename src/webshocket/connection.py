@@ -1,11 +1,13 @@
 import asyncio
 import pydantic
+import base64
 
+from uuid import uuid4
 from websockets import ServerConnection
 from typing import Any, Iterable, Union, Optional, TYPE_CHECKING
 
 from .packets import Packet, RPCResponse
-from .enum import PacketSource, ConnectionState
+from .enum import PacketSource, ConnectionState, DataType
 from .exceptions import MessageError
 
 if TYPE_CHECKING:
@@ -37,8 +39,10 @@ class ClientConnection:
 
         object.__setattr__(self, "_protocol", websocket_protocol)
         object.__setattr__(self, "_handler", handler)
+
         object.__setattr__(self, "connection_state", ConnectionState.CONNECTED)
         object.__setattr__(self, "session_state", dict())
+        object.__setattr__(self, "uid", uuid4())
 
     @property
     def subscribed_channel(self) -> set[str]:
@@ -65,9 +69,18 @@ class ClientConnection:
             packet = data
 
         elif isinstance(data, (str, bytes)):
+            encoded_data = (
+                base64.b64encode(data).decode("ascii")
+                if isinstance(data, bytes)
+                else data
+            )
+
             packet = Packet(
-                data=data,
+                data=encoded_data,
                 source=PacketSource.CUSTOM,
+                content_type=(
+                    DataType.BINARY if isinstance(data, bytes) else DataType.PLAIN
+                ),
                 channel=None,
             )
 
@@ -125,8 +138,13 @@ class ClientConnection:
         try:
             self._protocol: ServerConnection
             raw_data = await asyncio.wait_for(self._protocol.recv(), timeout=timeout)
+
             try:
                 packet = Packet.model_validate_json(raw_data)
+
+                if packet.content_type == DataType.BINARY and packet.data:
+                    packet.data = base64.b64decode(packet.data)
+
                 return packet
 
             except pydantic.ValidationError as err:
