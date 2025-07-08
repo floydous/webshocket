@@ -3,12 +3,12 @@ A robust, asyncio-based WebSocket library providing easy-to-use
 client and server abstractions.
 """
 
-__version__ = "0.1.5"
+__version__ = "0.2.0"
 __author__ = "Floydous"
 __license__ = "MIT"
 
 from .handler import DefaultWebSocketHandler, WebSocketHandler
-from .enum import ServerState, ConnectionState, PacketSource
+from .enum import ServerState, ConnectionState, PacketSource, TimeUnit
 from .typing import CertificatePaths
 from .connection import ClientConnection
 from .packets import Packet, RPCRequest, RPCResponse
@@ -25,6 +25,7 @@ __all__ = [
     "ServerState",
     "ConnectionState",
     "PacketSource",
+    "TimeUnit",
     # Typing
     "CertificatePaths",
     # Connection
