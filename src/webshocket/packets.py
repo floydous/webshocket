@@ -3,7 +3,7 @@ import uuid
 
 from typing import Optional, Any, Union, Self
 from pydantic import BaseModel, model_validator, Field
-from .enum import PacketSource
+from .enum import PacketSource, DataType
 
 
 class RPCRequest(BaseModel):
@@ -21,6 +21,7 @@ class RPCResponse(BaseModel):
     call_id: uuid.UUID
     result: Optional[Any] = None
     error: Optional[str] = None
+    content_type: DataType = DataType.PLAIN
 
 
 class Packet(BaseModel):
@@ -37,6 +38,7 @@ class Packet(BaseModel):
 
     data: Optional[str | bytes] = None
     rpc: Optional[Union[RPCRequest, RPCResponse]] = None
+    content_type: DataType = DataType.PLAIN
 
     source: PacketSource
     channel: Optional[str] = ""
