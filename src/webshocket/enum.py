@@ -1,4 +1,4 @@
-from enum import Enum, auto
+from enum import IntEnum, Enum, auto
 
 
 class ConnectionState(Enum):
@@ -44,3 +44,18 @@ class PacketSource(Enum):
     UNKNOWN = auto()
     CUSTOM = auto()
     RPC = auto()
+
+
+class DataType(Enum):
+    """Represents the data type of a packet."""
+
+    PLAIN = auto()
+    BINARY = auto()
+
+
+class TimeUnit(IntEnum):
+    """Represents time units for rate limiting."""
+
+    SECOND = 1
+    MINUTES = 60
+    HOURS = 3600
