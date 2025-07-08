@@ -13,3 +13,4 @@ wheels/
 uv.lock
 /tests/personal_testing
 uv.lock
+/.vscode
