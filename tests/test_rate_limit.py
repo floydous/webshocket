@@ -23,7 +23,7 @@ class _TestRpcHandler(webshocket.WebSocketHandler):
             pass
 
     @rpc_method(alias_name="sum")
-    @rate_limit(limit=1, unit=webshocket.enum.TimeUnit.MINUTES)
+    @rate_limit(limit=1, unit=webshocket.TimeUnit.MINUTES)
     async def add_num(self, connection: webshocket.ClientConnection, data):
         return data
 
