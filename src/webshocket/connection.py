@@ -172,6 +172,12 @@ class ClientConnection:
             channel: A string or iterable that contains lists of channel to leave."""
         self._handler.unsubscribe(self, channel)
 
+    async def close(self, code: int = 1000, reason: str = "") -> None:
+        """Closes the connection."""
+
+        await self._protocol.close(code=code, reason=reason)
+        object.__setattr__(self, "connection_state", ConnectionState.CLOSED)
+
     def __setattr__(self, name: str, value: Any) -> None:
         """
         Called when setting an attribute. All assignments are redirected
