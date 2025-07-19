@@ -34,6 +34,7 @@ class server:
         host: str,
         port: int,
         *,
+        max_connection: Optional[int] = None,
         clientHandler: type[WebSocketHandler] = DefaultWebSocketHandler,
         certificate: Optional[CertificatePaths] = None,
     ) -> None:
@@ -42,6 +43,7 @@ class server:
         Args:
             host (str): The hostname or IP address to bind the server to.
             port (int): The port number to listen on.
+            max_connection (int): The maximum number of concurrent connections. Defaults to 100.
             websocket_handler (type[WebSocketHandler]): The class type of the handler
                                                         to manage WebSocket events (connect, receive, disconnect).
             certificate (Optional[CertificatePaths]): A dictionary containing paths to
@@ -51,7 +53,9 @@ class server:
         self.host, self.port = host, port
         self.handler = clientHandler()
         self.certificate = certificate
+        self.max_connection = max_connection
         self.state: ServerState = ServerState.CLOSED
+
         self._server: websockets.Server | None = None
         self._context: ssl.SSLContext | None = None
         self._client_bucket: asyncio.Queue[ClientConnection] = asyncio.Queue()
@@ -165,6 +169,11 @@ class server:
             traceback.print_exc()
 
         finally:
+            if (
+                not result and not error_message
+            ) or connection.connection_state != ConnectionState.CONNECTED:
+                return
+
             rpc_response = RPCResponse(
                 call_id=call_id,
                 error=error_message,
@@ -191,6 +200,14 @@ class server:
             websocket_protocol (websockets.ServerConnection): The underlying
                                                               WebSocket protocol object for the connection.
         """
+
+        if self.max_connection and len(self.handler.clients) >= self.max_connection:
+            await websocket_protocol.close(
+                code=websockets.frames.CloseCode.TRY_AGAIN_LATER,
+                reason="Server is currently at maximum capacity. Please try again later.",
+            )
+            return
+
         _websocket: ClientConnection = ClientConnection(
             websocket_protocol=websocket_protocol,
             handler=self.handler,
@@ -225,12 +242,12 @@ class server:
             pass
 
         finally:
+            _websocket.connection_state = ConnectionState.DISCONNECTED
             self.handler.clients.discard(_websocket)
 
             for topic_client in self.handler.channels.values():
                 topic_client.discard(_websocket)
 
-            _websocket.connection_state = ConnectionState.DISCONNECTED
             await self.handler.on_disconnect(_websocket)
 
     async def accept(self) -> ClientConnection:
