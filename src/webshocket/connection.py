@@ -1,13 +1,13 @@
 import asyncio
 import pydantic
-import base64
+import msgpack
 
 from uuid import uuid4
 from websockets import ServerConnection
-from typing import Any, Iterable, Union, Optional, TYPE_CHECKING
+from typing import Any, Iterable, Union, Optional, cast, TYPE_CHECKING
 
-from .packets import Packet, RPCResponse
-from .enum import PacketSource, ConnectionState, DataType
+from .packets import Packet, RPCResponse, serialize, deserialize
+from .enum import PacketSource, ConnectionState
 from .exceptions import MessageError
 
 if TYPE_CHECKING:
@@ -69,18 +69,9 @@ class ClientConnection:
             packet = data
 
         elif isinstance(data, (str, bytes)):
-            encoded_data = (
-                base64.b64encode(data).decode("ascii")
-                if isinstance(data, bytes)
-                else data
-            )
-
             packet = Packet(
-                data=encoded_data,
+                data=data,
                 source=PacketSource.CUSTOM,
-                content_type=(
-                    DataType.BINARY if isinstance(data, bytes) else DataType.PLAIN
-                ),
                 channel=None,
             )
 
@@ -89,7 +80,7 @@ class ClientConnection:
                 "Data for send must be a Packet, str, or bytes, not %s" % type(data)
             )
 
-        await self._protocol.send(packet.model_dump_json())
+        await self._protocol.send(serialize(packet))
 
     async def _send_rpc_response(self, rpc_response: "RPCResponse") -> None:
         """
@@ -105,7 +96,7 @@ class ClientConnection:
             rpc=rpc_response,
         )
 
-        await self._protocol.send(packet.model_dump_json())
+        await self._protocol.send(serialize(packet))
 
     async def recv(self, timeout: Optional[float] = 30.0) -> Packet:
         """Receives the next message and parses it into a validated Packet object.
@@ -138,16 +129,13 @@ class ClientConnection:
         try:
             self._protocol: ServerConnection
             raw_data = await asyncio.wait_for(self._protocol.recv(), timeout=timeout)
+            raw_data = cast(bytes, raw_data)
 
             try:
-                packet = Packet.model_validate_json(raw_data)
-
-                if packet.content_type == DataType.BINARY and packet.data:
-                    packet.data = base64.b64decode(packet.data)
-
+                packet = deserialize(raw_data, Packet)
                 return packet
 
-            except pydantic.ValidationError as err:
+            except (pydantic.ValidationError, msgpack.exceptions.ExtraData) as err:
                 raise MessageError(
                     "Received malformed or invalid packet data."
                 ) from err
@@ -235,7 +223,7 @@ class ClientConnection:
             f"<{type(self).__name__}("
             f"uid={self.uid}, "
             f"remote_address='{self.remote_address}', "
-            f"state={self.session_state}"
+            f"session_state={self.session_state}"
             f")>"
         )
 
