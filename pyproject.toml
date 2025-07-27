@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.8"
 
 dependencies = [
+    "msgpack>=1.1.1",
     "pydantic>=2.10.6",
     "websockets>=13.1",
 ]
