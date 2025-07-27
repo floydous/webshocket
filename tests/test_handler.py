@@ -1,4 +1,5 @@
 import webshocket
+import websockets
 import pytest
 
 HOST, PORT = ("127.0.0.1", 5000)
@@ -35,3 +36,24 @@ async def test_server_handler() -> None:
     finally:
         await client.close()
         await server.close()
+
+
+@pytest.mark.asyncio
+async def test_max_connection() -> None:
+    server = webshocket.WebSocketServer(
+        HOST, PORT, clientHandler=customClientHandler, max_connection=1
+    )
+    await server.start()
+
+    client1 = await webshocket.WebSocketClient(f"ws://{HOST}:{PORT}").connect()
+    await client1.send("Hello")
+
+    with pytest.raises(websockets.exceptions.ConnectionClosedError):
+        client2 = await webshocket.WebSocketClient(f"ws://{HOST}:{PORT}").connect()
+        await client2.send("Hello")
+
+    assert len(server.clients) == 1
+
+    await server.close()
+    await client1.close()
+    await client2.close()
