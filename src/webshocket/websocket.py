@@ -5,17 +5,17 @@ import pathlib
 import random
 import pydantic
 import time
-import base64
+import msgpack
 
-from typing import Optional, Callable, Awaitable, Union, Any, Self
 from contextlib import suppress
+from typing import Optional, Callable, Awaitable, Union, Any, Self, cast
+
 from .handler import WebSocketHandler, DefaultWebSocketHandler
 from .typing import CertificatePaths
-from .enum import ConnectionState, PacketSource, ServerState, DataType
+from .enum import ConnectionState, PacketSource, ServerState, RPCErrorCode
 from .connection import ClientConnection
 from .exceptions import ConnectionFailedError, WebSocketError, RPCError
-from .packets import Packet, RPCRequest, RPCResponse
-from .utils import encode_bytes_for_json, decode_bytes_from_json
+from .packets import Packet, RPCRequest, RPCResponse, serialize, deserialize
 
 import websockets.asyncio
 import websockets.asyncio.server
@@ -43,7 +43,7 @@ class server:
         Args:
             host (str): The hostname or IP address to bind the server to.
             port (int): The port number to listen on.
-            max_connection (int): The maximum number of concurrent connections. Defaults to 100.
+            max_connection (int | None): The maximum number of concurrent connections. Unlimited if None
             websocket_handler (type[WebSocketHandler]): The class type of the handler
                                                         to manage WebSocket events (connect, receive, disconnect).
             certificate (Optional[CertificatePaths]): A dictionary containing paths to
@@ -76,20 +76,14 @@ class server:
 
         packet: Packet
 
-        if not isinstance(data, (str, bytes)):
-            raise TypeError(
-                "Data to be converted must be a string or bytes, not %s" % type(data)
-            )
+        if not isinstance(data, bytes):
+            raise TypeError("Data to be converted must be a bytes, not %s" % type(data))
 
         try:
-            packet = Packet.model_validate_json(data)
-
-            if packet.content_type == DataType.BINARY and packet.data:
-                packet.data = base64.b64decode(packet.data)
-
+            packet = deserialize(data, Packet)
             return packet
 
-        except pydantic.ValidationError:
+        except (pydantic.ValidationError, msgpack.exceptions.ExtraData):
             packet = Packet(
                 data=data,
                 source=PacketSource.UNKNOWN,
@@ -115,23 +109,27 @@ class server:
         """
 
         method_name = rpc_request.method
+        args = rpc_request.args
+        kwargs = rpc_request.kwargs
         call_id = rpc_request.call_id
+
+        error: RPCErrorCode | None = None
         error_message: Optional[str] = None
         result: Any = None
 
         try:
             rpc_func = handler._rpc_methods.get(method_name, None)
 
-            if not rpc_func:
+            if rpc_func is None or not getattr(rpc_func, "_is_rpc_method", False):
                 await connection._send_rpc_response(  # type: ignore
                     RPCResponse(
-                        call_id=call_id, error=f"RPC method '{method_name}' not found."
+                        call_id=call_id,
+                        response=f"RPC method '{method_name}' not found.",
+                        error=RPCErrorCode.METHOD_NOT_FOUND,
                     ),
                 )
-                return
 
-            if not getattr(rpc_func, "_is_rpc_method", False):
-                raise RPCError(f"RPC method '{method_name}' is not exposed.")
+                return
 
             if getattr(rpc_func, "_rate_limit", None):
                 limit, unit, key = rpc_func._rate_limit
@@ -144,26 +142,36 @@ class server:
                     rpc_func._list_client[key(connection)]["count"] = 0
 
                 if rpc_func._list_client[key(connection)]["count"] >= limit:
-                    raise RPCError(
-                        f"Rate limit exceeded for RPC method '{method_name}'."
+                    await connection._send_rpc_response(  # type: ignore
+                        RPCResponse(
+                            call_id=call_id,
+                            response=f"Rate limit exceeded for RPC method '{method_name}'.",
+                            error=RPCErrorCode.RATE_LIMIT_EXCEEDED,
+                        )
                     )
 
                 rpc_func._list_client[key(connection)]["count"] += 1
 
-            args = decode_bytes_from_json(
-                rpc_request.args if rpc_request.args is not None else []
+            result = await rpc_func(
+                connection,
+                *args,
+                **cast(dict[str, Any], kwargs),
             )
-            kwargs = decode_bytes_from_json(
-                rpc_request.kwargs if rpc_request.kwargs is not None else {}
-            )
-
-            result = await rpc_func(connection, *args, **kwargs)
 
         except RPCError as rcp_error:
             error_message = str(rcp_error)
+            error = RPCErrorCode.APPLICATION_ERROR
+
+        except TypeError as e:
+            error_message = f"Server error ({type(e).__name__}): {e}"
+            error = RPCErrorCode.INVALID_PARAMS
+            import traceback
+
+            traceback.print_exc()
 
         except Exception as e:
             error_message = f"Server error ({type(e).__name__}): {e}"
+            error = RPCErrorCode.INTERNAL_SERVER_ERROR
             import traceback
 
             traceback.print_exc()
@@ -175,16 +183,9 @@ class server:
                 return
 
             rpc_response = RPCResponse(
+                response=error_message or result,
                 call_id=call_id,
-                error=error_message,
-                result=(
-                    base64.b64encode(result).decode("ascii")
-                    if isinstance(result, bytes)
-                    else result
-                ),
-                content_type=(
-                    DataType.BINARY if isinstance(result, bytes) else DataType.PLAIN
-                ),
+                error=error,
             )
 
             await connection._send_rpc_response(rpc_response)  # type: ignore
@@ -201,7 +202,10 @@ class server:
                                                               WebSocket protocol object for the connection.
         """
 
-        if self.max_connection and len(self.handler.clients) >= self.max_connection:
+        if (
+            isinstance(self.max_connection, int)
+            and len(self.handler.clients) >= self.max_connection
+        ):
             await websocket_protocol.close(
                 code=websockets.frames.CloseCode.TRY_AGAIN_LATER,
                 reason="Server is currently at maximum capacity. Please try again later.",
@@ -275,7 +279,7 @@ class server:
         websocket = await self._client_bucket.get()
         return websocket
 
-    async def start(self, *args, **kwargs) -> None:
+    async def start(self, *args, **kwargs) -> Self:
         """Starts the WebSocket server.
 
         If an SSL certificate is provided, the server will run securely (WSS).
@@ -298,6 +302,8 @@ class server:
             )
 
             self.state = ServerState.SERVING
+
+        return self
 
     async def serve_forever(self, *args, **kwargs) -> None:
         """Starts the WebSocket server and keeps it running indefinitely.
@@ -511,18 +517,9 @@ class client:
             packet = data
 
         elif isinstance(data, (str, bytes)):
-            encoded_data = (
-                base64.b64encode(data).decode("ascii")
-                if isinstance(data, bytes)
-                else data
-            )
-
             packet = Packet(
-                data=encoded_data,
+                data=data,
                 source=PacketSource.CUSTOM,
-                content_type=(
-                    DataType.BINARY if isinstance(data, bytes) else DataType.PLAIN
-                ),
                 channel=None,
             )
 
@@ -531,7 +528,7 @@ class client:
                 "Data for send must be a Packet, str, or bytes, not %s" % type(data)
             )
 
-        await self._protocol.send(packet.model_dump_json())
+        await self._protocol.send(serialize(packet))
 
     async def send_rpc(self, method_name: str, *args, **kwargs) -> Self:
         """Sends an RPC message to the WebSocket server.
@@ -546,19 +543,16 @@ class client:
         if (not self._protocol) or self.state != ConnectionState.CONNECTED:
             raise WebSocketError("Cannot send RPC: client is not connected.")
 
-        encoded_args = encode_bytes_for_json(args)
-        encoded_kwargs = encode_bytes_for_json(kwargs)
-
         packet: Packet = Packet(
             rpc=RPCRequest(
                 method=method_name,
-                args=encoded_args,
-                kwargs=encoded_kwargs,
+                args=args,
+                kwargs=kwargs,
             ),
             source=PacketSource.RPC,
         )
 
-        await self._protocol.send(packet.model_dump_json())
+        await self._protocol.send(serialize(packet))
         return self
 
     async def recv(self, timeout: int | None = 30) -> Packet:
@@ -581,24 +575,16 @@ class client:
         try:
             if timeout is not None:
                 data = await asyncio.wait_for(
-                    self._protocol.recv(),
+                    self._protocol.recv(decode=False),
                     timeout=timeout,
                 )
-
             else:
-                data = await self._protocol.recv()
-
+                data = await self._protocol.recv(decode=False)
             try:
-                packet: Packet = Packet.model_validate_json(data)
+                packet: Packet = deserialize(data, Packet)
 
                 if isinstance(packet.rpc, RPCResponse):
-                    if packet.rpc.content_type == DataType.BINARY and packet.rpc.result:
-                        packet.rpc.result = base64.b64decode(packet.rpc.result)
-
-                    packet.data = packet.rpc.result or packet.rpc.error
-
-                if packet.content_type == DataType.BINARY and packet.data:
-                    packet.data = base64.b64decode(packet.data)
+                    packet.data = packet.rpc.response
 
             except pydantic.ValidationError:
                 packet: Packet = Packet(
