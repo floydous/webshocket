@@ -46,16 +46,32 @@ class PacketSource(Enum):
     RPC = auto()
 
 
-class DataType(Enum):
-    """Represents the data type of a packet."""
-
-    PLAIN = auto()
-    BINARY = auto()
-
-
 class TimeUnit(IntEnum):
     """Represents time units for rate limiting."""
 
     SECOND = 1
     MINUTES = 60
     HOURS = 3600
+
+
+class RPCErrorCode(IntEnum):
+    """
+    Defines standard error codes for the RPC system, inspired by the JSON-RPC 2.0 spec.
+    """
+
+    # Standard JSON-RPC Error Codes
+    METHOD_NOT_FOUND = -32601
+    """The requested RPC method does not exist on the handler."""
+
+    INVALID_PARAMS = -32602
+    """Invalid method parameters were provided (e.g., wrong type, wrong number of arguments)."""
+
+    INTERNAL_SERVER_ERROR = -32603
+    """A generic, unexpected error occurred on the server during the execution of the RPC method."""
+
+    # Custom Server-Side Error Codes (as per JSON-RPC spec, -32000 to -32099 are reserved)
+    RATE_LIMIT_EXCEEDED = -32000
+    """The client has exceeded the rate limit for the requested method."""
+
+    APPLICATION_ERROR = -32001
+    """The RPC method was executed successfully but raised an intentional, application-specific exception."""
