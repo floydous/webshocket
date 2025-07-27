@@ -15,9 +15,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.2.0] - 2025-07-09
+## [0.2.5] - 2025-07-27
 
-_Note: This is a development release. The API may be subject to change._
+### Added
+
+- `max_connection` parameter to `WebSocketServer` to limit the number of concurrent connections.
+- Added `RPCErrorCode` Enum to represent RPC Response codes.
+- Few logging for debugging.
+
+### Fixed
+
+- Fixed the `close()` function for `ClientConnection` where it doesn't immediately change the `connection_state` to `CLOSED`
+- Fixed type hinting for `ClientConnection`
+
+## Changed
+
+- Serialization method for `Packet` data is switched from base64 to `msgpack` (binary)
+- `Packet` data is no longer restricted for bytes or string, it can be anything as long it's serializeable with `msgpack`
+- `RPCResponse` is now only consisnt of `call_id` (String), `response` (Any), and `error` (RPCErrorCode)
+
+---
+
+## [0.2.0] - 2025-07-09
 
 ### Added
 
