@@ -92,7 +92,7 @@ def serialize(base_model: BaseModel) -> bytes:
         msgpack.packb(
             base_model.model_dump(mode="python"),
             use_bin_type=True,
-            default=lambda obj: obj.value if isinstance(obj, Enum) else None,  # type: ignore
+            default=lambda obj: obj.value if isinstance(obj, Enum) else obj,  # type: ignore
         ),
     )
 
