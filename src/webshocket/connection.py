@@ -53,7 +53,7 @@ class ClientConnection:
         """
         return self._handler.reversed_channels.get(self, set())
 
-    async def send(self, data: Union[str, bytes, Packet]) -> None:
+    async def send(self, data: Union[Any, Packet]) -> None:
         """Sends data over the connection.
 
         This is method ensures all data is sent in a structured Packet format.
@@ -68,16 +68,11 @@ class ClientConnection:
         if isinstance(data, Packet):
             packet = data
 
-        elif isinstance(data, (str, bytes)):
+        else:
             packet = Packet(
                 data=data,
                 source=PacketSource.CUSTOM,
                 channel=None,
-            )
-
-        else:
-            raise TypeError(
-                "Data for send must be a Packet, str, or bytes, not %s" % type(data)
             )
 
         await self._protocol.send(serialize(packet))

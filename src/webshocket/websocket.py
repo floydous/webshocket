@@ -77,7 +77,9 @@ class server:
         packet: Packet
 
         if not isinstance(data, bytes):
-            raise TypeError("Data to be converted must be a bytes, not %s" % type(data))
+            raise TypeError(
+                "Data to be deserialize must be a bytes, not %s" % type(data)
+            )
 
         try:
             packet = deserialize(data, Packet)
@@ -499,11 +501,11 @@ class client:
             "All connection attempts failed after multiple retries."
         )
 
-    async def send(self, data: Union[str | bytes, Packet]) -> None:
+    async def send(self, data: Union[Any, Packet]) -> None:
         """Sends data over the WebSocket connection.
 
         Args:
-            data (str | bytes): The data to send. Can be a string or bytes.
+            data (Any | Packet): The data to send. Could be anything as long it's serializeable by `msgpack`
 
         Raises:
             WebSocketError: If the client is not connected.
@@ -516,16 +518,11 @@ class client:
         if isinstance(data, Packet):
             packet = data
 
-        elif isinstance(data, (str, bytes)):
+        else:
             packet = Packet(
                 data=data,
                 source=PacketSource.CUSTOM,
                 channel=None,
-            )
-
-        else:
-            raise TypeError(
-                "Data for send must be a Packet, str, or bytes, not %s" % type(data)
             )
 
         await self._protocol.send(serialize(packet))
@@ -586,7 +583,8 @@ class client:
                 if isinstance(packet.rpc, RPCResponse):
                     packet.data = packet.rpc.response
 
-            except pydantic.ValidationError:
+            except pydantic.ValidationError as e:
+                print("OMG ERR: " + str(e))
                 packet: Packet = Packet(
                     data=data,
                     source=PacketSource.UNKNOWN,
