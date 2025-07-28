@@ -1,7 +1,6 @@
 import webshocket
 import pytest
 
-
 HOST, PORT = ("127.0.0.1", 5000)
 
 
@@ -62,6 +61,50 @@ async def test_packet_source() -> None:
 
         assert received_packet.data == payload2
         assert received_packet.source == webshocket.PacketSource.BROADCAST
+
+    finally:
+        await client.close()
+        await server.close()
+
+
+@pytest.mark.asyncio
+async def test_send_other_datatype():
+    try:
+        server = webshocket.WebSocketServer(HOST, PORT)
+        await server.start()
+
+        client = webshocket.WebSocketClient(f"ws://{HOST}:{PORT}")
+        await client.connect()
+
+        connected_client = await server.accept()
+        await connected_client.send({"hello": "world"})
+
+        received_packet = await client.recv()
+        assert received_packet.data == {"hello": "world"}
+
+    finally:
+        await client.close()
+        await server.close()
+
+
+@pytest.mark.asyncio
+async def test_send_unserializeable_data():
+    data_to_send = [
+        {"hello", "world", "this", "is", "a", "set"},
+        lambda: "Function type",
+        webshocket.ClientConnection,  # Classes
+    ]
+
+    try:
+        server = webshocket.WebSocketServer(HOST, PORT)
+        await server.start()
+
+        client = webshocket.WebSocketClient(f"ws://{HOST}:{PORT}")
+        await client.connect()
+
+        for item in data_to_send:
+            with pytest.raises(TypeError):
+                await client.send(item)
 
     finally:
         await client.close()
