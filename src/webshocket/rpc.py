@@ -12,7 +12,9 @@ if TYPE_CHECKING:
     from .connection import ClientConnection
 
 
-def rpc_method(alias_name: Optional[str] = None) -> Callable[..., Any]:
+def rpc_method(
+    alias_name: Optional[str] = None, requires: Optional[Callable[["ClientConnection"], bool]] = None
+) -> Callable[..., Any]:
     """
     Decorator to mark a method in a WebSocketHandler as an RPC-callable method.
     When a method is decorated with @rpc_method, it becomes callable by clients
@@ -23,13 +25,15 @@ def rpc_method(alias_name: Optional[str] = None) -> Callable[..., Any]:
 
     Usage:
         class MyHandler(WebSocketHandler):
-            @rpc_method
-            async def my_rpc_function(self, connection: ClientConnection, arg1: str, arg2: int):
+            @rpc_method(alias_name="my_rpc_function", requires=lambda connection: connection.is_admin)
+            async def my_rpc(self, connection: ClientConnection, arg1: str, arg2: int):
                 # ... implementation ...
-                return {"status": "success"}
+                return True
 
     Args:
         alias_name (Optional[str]): An alias name for the RPC method.
+        requires (Optional[Callable[[ClientConnection], bool]]): A function that returns
+            True if the client connection is allowed to call the method, False otherwise.
 
     Returns:
         Callable: The wrapped function.
@@ -43,8 +47,9 @@ def rpc_method(alias_name: Optional[str] = None) -> Callable[..., Any]:
         async def wrapper(self: "WebSocketHandler", *args: Any, **kwargs: Any) -> Any:
             return await func(self, *args, **kwargs)
 
-        setattr(wrapper, "_is_rpc_method", True)
         setattr(wrapper, "_rpc_alias_name", (alias_name or func.__name__))
+        setattr(wrapper, "_restricted", requires)
+        setattr(wrapper, "_is_rpc_method", True)
         return wrapper
 
     return decorator
@@ -54,9 +59,7 @@ def rate_limit(
     limit: int,
     unit: TimeUnit,
     *,
-    key: Callable[["ClientConnection"], Any] = lambda connection: getattr(
-        connection, "uid"
-    ),
+    key: Callable[["ClientConnection"], Any] = lambda connection: getattr(connection, "uid"),
 ) -> Callable[..., Any]:
     """
     Decorator to mark a method in a WebSocketHandler as a rate-limited method.
@@ -82,9 +85,6 @@ def rate_limit(
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         if not asyncio.iscoroutinefunction(func):
             raise TypeError(f"RPC method '{func.__name__}' must be an async function.")
-
-        # if not getattr(func, "_is_rpc_method", False):
-        #     raise TypeError("@rate_limit can only be used on RPC methods.")
 
         @wraps(func)
         async def wrapper(self: "WebSocketHandler", *args: Any, **kwargs: Any) -> Any:
