@@ -75,3 +75,6 @@ class RPCErrorCode(IntEnum):
 
     APPLICATION_ERROR = -32001
     """The RPC method was executed successfully but raised an intentional, application-specific exception."""
+
+    ACCESS_DENIED = -32002
+    """The client is not authorized to execute the requested method."""
