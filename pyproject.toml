@@ -1,6 +1,6 @@
 [project]
 name = "webshocket"
-version = "0.2.5"
+version = "0.3.0"
 description = "An enhanced module to provide a robust, socket-like abstraction for WebSockets"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -51,7 +51,7 @@ dev = [
 [tool.poe.tasks]
 test = "pytest -v -r f"
 lint = "ruff check ."
-format = "ruff format ."
+format = "ruff format --line-length 135 ."
 docs = "sphinx-build -b html docs/source/ docs/build/"
 all = ["format", "lint", "test"]
 
