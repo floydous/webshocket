@@ -37,6 +37,7 @@ class PacketSource(Enum):
         CHANNEL: A packet published to a specific subscribed channel of the client.
         UNKNOWN: A packet with an unknown source.
         CUSTOM: A packet manually sent by the server.
+        RPC: A packet sent in response to an RPC request.
     """
 
     BROADCAST = auto()
