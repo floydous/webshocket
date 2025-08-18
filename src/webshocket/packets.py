@@ -2,7 +2,7 @@ import time
 import uuid
 import msgpack
 
-from typing import Optional, Any, Union, Self, TypeVar, Type, cast
+from typing import Optional, Any, Union, Self, TypeVar, Type, Sequence, cast
 from pydantic import BaseModel, model_validator, Field
 from .enum import PacketSource, Enum, RPCErrorCode
 
@@ -15,7 +15,7 @@ class RPCRequest(BaseModel):
     call_id: str = Field(default_factory=lambda: uuid.uuid4().hex)
 
     method: str
-    args: tuple[Any, ...] = tuple()
+    args: Sequence[Any] = tuple()
     kwargs: dict[str, Any] = dict()
 
 
@@ -44,7 +44,7 @@ class Packet(BaseModel):
     rpc: Optional[Union[RPCRequest, RPCResponse]] = None
 
     source: PacketSource
-    channel: Optional[str] = str()
+    channel: Optional[str] = None
     timestamp: float = Field(default_factory=time.time)
     correlation_id: Optional[str] = None
 
@@ -52,6 +52,9 @@ class Packet(BaseModel):
     def validate(self) -> Self:
         if self.rpc is None and self.data is None:
             raise ValueError("Data must be provided.") from None
+
+        if self.channel == PacketSource.CHANNEL and self.channel is None:
+            raise ValueError("Channel must be provided.")
 
         return self
 
@@ -70,6 +73,8 @@ def deserialize(data: bytes, base_model: Type[T] = cast(Type[T], Packet)) -> T:
         A BaseModel object of the specified type if deserialization and
         validation are successful.
     """
+    if not isinstance(data, bytes):
+        raise TypeError("Data to be deserialize must be a bytes, not %s" % type(data))
 
     decoded_data = msgpack.unpackb(data, raw=False)
     return base_model.model_validate(decoded_data)
@@ -92,7 +97,7 @@ def serialize(base_model: BaseModel) -> bytes:
         msgpack.packb(
             base_model.model_dump(mode="python"),
             use_bin_type=True,
-            default=lambda obj: obj.value if isinstance(obj, Enum) else obj,  # type: ignore
+            default=lambda obj: obj.value if isinstance(obj, Enum) else obj,
         ),
     )
 

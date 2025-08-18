@@ -1,3 +1,11 @@
+class PacketError(Exception):
+    """Base exception class for all errors raised by the webshocket library.
+
+    This allows users to catch all library-specific errors with a single
+    'except PacketError:' block.
+    """
+
+
 class WebSocketError(Exception):
     """Base exception class for all errors raised by the webshocket library.
 
@@ -25,7 +33,12 @@ class MessageError(WebSocketError):
 
 
 class RPCError(Exception):
-    """Custom exception for RPC-related errors."""
+    """Raised when an error occurs while processing an RPC request."""
 
-    class NotFoundError(Exception):
-        pass
+    pass
+
+
+class NotFoundError(RPCError):
+    """Raised when an RPC method is not found."""
+
+    pass
