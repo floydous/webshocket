@@ -14,7 +14,9 @@ class clientHandler(webshocket.WebSocketHandler):
 
             await self.broadcast(
                 f"User '{websocket.session_state['username']}' has left the chat.",
-                exclude=tuple(conn for conn in self.clients if websocket.session_state.get("username") is None),
+                exclude=tuple(
+                    conn for conn in self.clients if websocket.session_state.get("username") is None
+                ),
             )
 
     async def on_receive(self, connection: webshocket.ClientConnection, packet: Packet):
@@ -44,20 +46,6 @@ class clientHandler(webshocket.WebSocketHandler):
             )
 
             return help_message
-
-        elif command_name == "msg":
-            if not len(args) >= 2:
-                return "Usage: /msg <username> <message>"
-
-            target_username = args[0]
-            message = " ".join(args[1:])
-
-            for client in self.clients:
-                if (_username := client.session_state.get("username")) == target_username and _username != connection.username:
-                    await client.send(message)
-                    return f"Private message to {target_username}: {message}"
-
-            return f"User '{target_username}' not found."
 
         elif command_name == "rooms":
             active_rooms: str = ", ".join([name for name in self.channels.keys()])
@@ -89,9 +77,11 @@ class clientHandler(webshocket.WebSocketHandler):
             message = " ".join(args[1:])
 
             for client in self.clients:
-                if (_username := client.session_state.get("username")) == target_username and _username != connection.username:
-                    # await client.send(f"Private message from {connection.username}: {message}")
-                    return f"Private message to {target_username}: {message}"
+                if (
+                    _username := client.session_state.get("username")
+                ) == target_username and _username != connection.username:
+                    await client.send(f"Private message from {connection.username}: {message}")
+                    return f"Private message sent to {target_username}: {message}"
 
             return f"User '{target_username}' not found."
 
@@ -116,7 +106,11 @@ class clientHandler(webshocket.WebSocketHandler):
 
 
 async def main() -> None:
-    server = webshocket.websocket.server("127.0.0.1", 5000, clientHandler=clientHandler)
+    server = webshocket.websocket.server(
+        "127.0.0.1",
+        5000,
+        clientHandler=clientHandler,
+    )
     await server.serve_forever()
 
 
