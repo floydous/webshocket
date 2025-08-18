@@ -1,7 +1,8 @@
+import websockets
 import webshocket
 import pytest
 
-HOST, PORT = ("127.0.0.1", 5000)
+HOST, PORT = "127.0.0.1", 5000
 
 
 @pytest.mark.asyncio
@@ -50,7 +51,10 @@ async def test_packet_source() -> None:
 
         assert "sport" in connected_client.subscribed_channel
 
-        await server.publish("sport", payload)
+        await server.publish(
+            "sport",
+            payload,
+        )
         received_packet = await client.recv()
 
         assert received_packet.data == payload
@@ -105,6 +109,26 @@ async def test_send_unserializeable_data():
         for item in data_to_send:
             with pytest.raises(TypeError):
                 await client.send(item)
+
+    finally:
+        await client.close()
+        await server.close()
+
+
+@pytest.mark.asyncio
+async def test_unknown_packet():
+    try:
+        server = webshocket.WebSocketServer(HOST, PORT)
+        await server.start()
+
+        client = await websockets.connect(f"ws://{HOST}:{PORT}")
+        connected_client = await server.accept()
+        await client.send("Raw String.")
+
+        received_packet = await connected_client.recv()
+
+        assert received_packet.data == "Raw String."
+        assert received_packet.source == webshocket.PacketSource.UNKNOWN
 
     finally:
         await client.close()
