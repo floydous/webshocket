@@ -1,19 +1,12 @@
 import asyncio
 import collections
+import inspect
 
 from collections.abc import Awaitable
-from typing import (
-    TYPE_CHECKING,
-    Optional,
-    Set,
-    Dict,
-    Iterable,
-    Union,
-    Callable,
-    Any,
-)
+from typing import TYPE_CHECKING, Optional, Set, Dict, Iterable, Union, cast
 
 from .packets import Packet, PacketSource
+from .typing import RPC_Function
 
 if TYPE_CHECKING:
     from .connection import ClientConnection
@@ -25,18 +18,26 @@ class WebSocketHandler:
     def __init__(self) -> None:
         self.clients: Set["ClientConnection"] = set()
         self.channels: Dict[str, Set["ClientConnection"]] = collections.defaultdict(set)
-        self.reversed_channels: Dict["ClientConnection", Set[str]] = (
-            collections.defaultdict(set)
-        )
-        self._rpc_methods: Dict[str, Callable[..., Any]] = dict()
+        self._rpc_methods: Dict[str, RPC_Function] = dict()
 
-        for name in dir(self):
-            method = getattr(self, name)
+        for name, func in inspect.getmembers(self, predicate=callable):
+            rpc_alias_name = getattr(func, "_rpc_alias_name", name)
 
-            if not (callable(method) and getattr(method, "_is_rpc_method", False)):
+            if not (callable(func) and getattr(func, "_is_rpc_method", False)):
                 continue
 
-            self._rpc_methods[getattr(method, "_rpc_alias_name", name)] = method
+            self._rpc_methods[rpc_alias_name] = cast(RPC_Function, func)
+
+    def register_rpc_method(self, func: RPC_Function, alias_name: Optional[str] = None) -> None:
+        """Registers an RPC method with the handler."""
+
+        if not getattr(func, "_is_rpc_method", False):
+            raise ValueError("Function is a non-RPC method.")
+
+        rpc_alias_name = alias_name or getattr(func, "_rpc_alias_name", None)
+
+        if rpc_alias_name:
+            self._rpc_methods[rpc_alias_name] = func
 
     async def on_connect(self, websocket: "ClientConnection"):
         """(Optional) Called when a new client connects."""
@@ -47,12 +48,14 @@ class WebSocketHandler:
         pass
 
     async def on_receive(self, connection: "ClientConnection", packet: Packet):
+        """(Optional) Called when a client sends a packet."""
         pass
 
     async def broadcast(
         self,
         data: Union[str | bytes, Packet],
-        exclude: Optional[tuple["ClientConnection"]] = None,
+        exclude: Optional[tuple["ClientConnection", ...]] = None,
+        **kwargs,
     ) -> None:
         """Broadcasts a message to all connected clients, with optional exclusions.
 
@@ -68,24 +71,22 @@ class WebSocketHandler:
         exclude_set = set(exclude if exclude is not None else tuple())
 
         if not isinstance(data, Packet):
-            data = Packet(
-                data=data,
-                source=PacketSource.BROADCAST,
-            )
+            data = Packet(data=data, source=PacketSource.BROADCAST, **kwargs)
 
-        tasks: list[Awaitable[None]] = [
-            client.send(data) for client in self.clients if client not in exclude_set
-        ]
+        if data.source != PacketSource.BROADCAST:
+            raise ValueError("Cannot broadcast non-broadcast packet.")
+
+        tasks: list[Awaitable[None]] = [client.send(data) for client in self.clients if client not in exclude_set]
 
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
     async def publish(
         self,
-        channel: str,
+        channel: str | Iterable[str],
         data: Union[str | bytes, Packet],
-        exclude: Optional[tuple["ClientConnection"]] = None,
-    ) -> int:
+        exclude: Optional[tuple["ClientConnection", ...]] = None,
+    ) -> None:
         """Publishes a message to all clients subscribed to a specific channel.
 
         Args:
@@ -97,27 +98,18 @@ class WebSocketHandler:
         Returns:
             int: The number of clients the message was sent to.
         """
-        if self.channels[channel]:
-            exclude_set = set(exclude if exclude is not None else tuple())
+        exclude_set = set(exclude if exclude is not None else tuple())
+        channels = {channel} if isinstance(channel, str) else set(channel)
 
-            if not isinstance(data, Packet):
-                data = Packet(
-                    data=data,
-                    source=PacketSource.CHANNEL,
-                    channel=channel,
-                )
+        if isinstance(data, Packet) and data.source != PacketSource.CHANNEL:
+            raise ValueError("Cannot publish non-channel packet.")
 
-            tasks: list[Awaitable[None]] = [
-                client.send(data)
-                for client in self.channels[channel]
-                if client not in exclude_set
-            ]
+        for channel in channels:
+            packet = Packet(data=data, source=PacketSource.CHANNEL, channel=channel) if isinstance(data, str) else data
+            tasks: list[Awaitable[None]] = [client.send(packet) for client in self.channels[channel] if client not in exclude_set]
 
             if tasks:
                 await asyncio.gather(*tasks, return_exceptions=True)
-                return len(tasks)
-
-        return 0
 
     def subscribe(self, client: "ClientConnection", channel: str | Iterable) -> None:
         """Subscribes a client to one or more channels.
@@ -131,11 +123,7 @@ class WebSocketHandler:
         for channel_name in channel:
             self.channels[channel_name].add(client)
 
-        self.reversed_channels[client].update(channel)
-
-    def unsubscribe(
-        self, client: "ClientConnection", channel: str | Iterable[str]
-    ) -> None:
+    def unsubscribe(self, client: "ClientConnection", channel: str | Iterable[str]) -> None:
         """Unsubscribes a client from one or more channels.
 
         Args:
@@ -143,11 +131,6 @@ class WebSocketHandler:
             channel (str | Iterable[str]): The channel name(s) to unsubscribe the client from.
         """
         channel = {channel} if isinstance(channel, str) else set(channel)
-
-        self.reversed_channels[client] -= channel
-
-        if not self.reversed_channels[client]:
-            del self.reversed_channels[client]
 
         for channel_name in channel:
             self.channels[channel_name].discard(client)
