@@ -8,7 +8,8 @@ from typing import Any, Iterable, Union, Optional, cast, TYPE_CHECKING
 
 from .packets import Packet, RPCResponse, serialize, deserialize
 from .enum import PacketSource, ConnectionState
-from .exceptions import MessageError
+from .typing import DEFAULT_WEBSHOCKET_SUBPROTOCOL
+from .handler import DefaultWebSocketHandler
 
 if TYPE_CHECKING:
     from .handler import WebSocketHandler
@@ -23,9 +24,7 @@ class ClientConnection:
     in an internal `session_state` dictionary.
     """
 
-    def __init__(
-        self, websocket_protocol: ServerConnection, handler: "WebSocketHandler"
-    ) -> None:
+    def __init__(self, websocket_protocol: ServerConnection, handler: "WebSocketHandler", packet_qsize: int = 1) -> None:
         """
         Initializes a new ClientConnection instance.
 
@@ -37,6 +36,7 @@ class ClientConnection:
             handler (WebSocketHandler): The handler instance that manages this connection.
         """
 
+        object.__setattr__(self, "_packet_queue", asyncio.Queue[Packet](maxsize=packet_qsize))
         object.__setattr__(self, "_protocol", websocket_protocol)
         object.__setattr__(self, "_handler", handler)
 
@@ -51,7 +51,16 @@ class ClientConnection:
         Returns:
             A set of channel names that the client is subscribed to.
         """
-        return self._handler.reversed_channels.get(self, set())
+
+        subscribed_channel = set()
+
+        for channel_name, client_list in self._handler.channels.items():
+            if self not in client_list:
+                continue
+
+            subscribed_channel.add(channel_name)
+
+        return subscribed_channel
 
     async def send(self, data: Union[Any, Packet]) -> None:
         """Sends data over the connection.
@@ -86,12 +95,13 @@ class ClientConnection:
         """
 
         packet = Packet(
-            data=rpc_response.model_dump_json(),
             source=PacketSource.RPC,
             rpc=rpc_response,
         )
 
-        await self._protocol.send(serialize(packet))
+        await self._protocol.send(
+            serialize(packet) if self._protocol.subprotocol == DEFAULT_WEBSHOCKET_SUBPROTOCOL else packet.model_dump_json()
+        )
 
     async def recv(self, timeout: Optional[float] = 30.0) -> Packet:
         """Receives the next message and parses it into a validated Packet object.
@@ -122,23 +132,31 @@ class ClientConnection:
             raise ConnectionError("Cannot receive data: client is not connected.")
 
         try:
+            if isinstance(self._handler, DefaultWebSocketHandler):
+                packet = await self._packet_queue.get()
+                return packet
+
             self._protocol: ServerConnection
             raw_data = await asyncio.wait_for(self._protocol.recv(), timeout=timeout)
             raw_data = cast(bytes, raw_data)
 
             try:
-                packet = deserialize(raw_data, Packet)
-                return packet
+                if self._protocol.subprotocol == DEFAULT_WEBSHOCKET_SUBPROTOCOL:
+                    packet = deserialize(raw_data, Packet)
+                else:
+                    packet = Packet.model_validate_json(raw_data)
 
-            except (pydantic.ValidationError, msgpack.exceptions.ExtraData) as err:
-                raise MessageError(
-                    "Received malformed or invalid packet data."
-                ) from err
+            except (pydantic.ValidationError, msgpack.exceptions.ExtraData, TypeError):
+                packet = Packet(
+                    data=raw_data,
+                    source=PacketSource.UNKNOWN,
+                    channel=None,
+                )
+
+            return packet
 
         except asyncio.TimeoutError:
-            raise TimeoutError(
-                f"Receive operation timed out after {timeout} seconds."
-            ) from None
+            raise TimeoutError(f"Receive operation timed out after {timeout} seconds.") from None
 
     def subscribe(self, channel: Union[str, Iterable[str]]) -> None:
         """A shortcut method for this connection to join one or more channels.
@@ -183,9 +201,7 @@ class ClientConnection:
             try:
                 return getattr(self._protocol, name)
             except AttributeError:
-                raise AttributeError(
-                    f"'{type(self).__name__}' object has no attribute '{name}'"
-                ) from None
+                raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'") from None
 
     def __delattr__(self, name: str) -> None:
         """Called when deleting an attribute (e.g., `del connection.username`)."""
@@ -214,13 +230,7 @@ class ClientConnection:
 
     def __repr__(self) -> str:
         """Returns a string representation of the ClientConnection object."""
-        return (
-            f"<{type(self).__name__}("
-            f"uid={self.uid}, "
-            f"remote_address='{self.remote_address}', "
-            f"session_state={self.session_state}"
-            f")>"
-        )
+        return f"<{type(self).__name__}(uid={self.uid}, remote_address='{self.remote_address}', session_state={self.session_state})>"
 
     def __hash__(self):
         """Returns a hash value for the ClientConnection object."""
