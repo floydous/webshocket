@@ -2,7 +2,7 @@ import webshocket
 import pytest
 import asyncio
 
-HOST, PORT = ("127.0.0.1", 5000)
+(HOST, PORT) = ("127.0.0.1", 5000)
 
 
 @pytest.mark.asyncio
@@ -26,12 +26,18 @@ async def test_simple_subscription() -> None:
         assert "sports" in connected_client_one.subscribed_channel
         assert "news" in connected_client_two.subscribed_channel
 
-        await server.publish("sports", "Sports News!")
+        await server.publish(
+            "sports",
+            "Sports News!",
+        )
         received_response = await client_one.recv()
         assert received_response.data == "Sports News!"
         assert received_response.source == webshocket.PacketSource.CHANNEL
 
-        await server.publish("news", "News Report!")
+        await server.publish(
+            "news",
+            "News Report!",
+        )
         received_response = await client_two.recv()
         assert received_response.data == "News Report!"
         assert received_response.source == webshocket.PacketSource.CHANNEL
@@ -49,10 +55,7 @@ async def test_broadcast():
 
     number_of_clients = 5
 
-    clients = [
-        webshocket.WebSocketClient(f"ws://{HOST}:{PORT}")
-        for _ in range(number_of_clients)
-    ]
+    clients = [webshocket.WebSocketClient(f"ws://{HOST}:{PORT}") for _ in range(number_of_clients)]
 
     try:
         connect_tasks = [client.connect() for client in clients]
@@ -74,7 +77,10 @@ async def test_broadcast():
 
     finally:
         close_tasks = [client.close() for client in clients]
-        await asyncio.gather(*close_tasks, return_exceptions=True)
+        await asyncio.gather(
+            *close_tasks,
+            return_exceptions=True,
+        )
         await server.close()
 
 
@@ -90,11 +96,94 @@ async def test_receive_timeout() -> None:
         connected_client = await server.accept()
         connected_client.subscribe("sports")
 
-        await server.publish("news", "This is News update!")
+        await server.publish(
+            "news",
+            "This is News update!",
+        )
 
         with pytest.raises(TimeoutError):
-            await asyncio.wait_for(client.recv(), timeout=1)
+            await asyncio.wait_for(
+                client.recv(),
+                timeout=1,
+            )
 
     finally:
         await client.close()
+        await server.close()
+
+
+@pytest.mark.asyncio
+async def test_multiple_publish() -> None:
+    server = webshocket.WebSocketServer(HOST, PORT)
+    await server.start()
+
+    try:
+        client_sport = webshocket.WebSocketClient(f"ws://{HOST}:{PORT}")
+        await client_sport.connect()
+
+        client_news = webshocket.WebSocketClient(f"ws://{HOST}:{PORT}")
+        await client_news.connect()
+
+        connected_client1 = await server.accept()
+        connected_client1.subscribe("sports")
+        connected_client2 = await server.accept()
+        connected_client2.subscribe("news")
+
+        await server.publish({"sports", "news"}, "This is Global update!")
+
+        received_packet = await client_sport.recv()
+        assert received_packet.data == "This is Global update!"
+
+        received_packet = await client_news.recv()
+        assert received_packet.data == "This is Global update!"
+
+    finally:
+        await client_sport.close()
+        await client_news.close()
+        await server.close()
+
+
+@pytest.mark.asyncio
+async def test_channel_auto_delete() -> None:
+    server = webshocket.WebSocketServer(HOST, PORT)
+    await server.start()
+
+    try:
+        client = webshocket.WebSocketClient(f"ws://{HOST}:{PORT}")
+        await client.connect()
+
+        connected_client = await server.accept()
+        connected_client.subscribe("sports")
+
+        assert len(server.channels) == 1
+
+        connected_client.unsubscribe("sports")
+
+        assert len(server.channels) == 0
+
+    finally:
+        await client.close()
+        await server.close()
+
+
+@pytest.mark.asyncio
+async def test_remove_on_disconnect() -> None:
+    server = webshocket.WebSocketServer(HOST, PORT)
+    await server.start()
+
+    try:
+        client = webshocket.WebSocketClient(f"ws://{HOST}:{PORT}")
+        await client.connect()
+
+        connected_client = await server.accept()
+        connected_client.subscribe("sports")
+
+        assert len(server.channels) == 1
+
+        await client.close()
+        await asyncio.sleep(0.2)
+
+        assert len(server.channels) == 0
+
+    finally:
         await server.close()
