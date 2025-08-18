@@ -6,6 +6,14 @@ client and server abstractions.
 import logging
 
 
+from .exceptions import (
+    NotFoundError,
+    RPCError,
+    MessageError,
+    ConnectionFailedError,
+    WebSocketError,
+    PacketError,
+)
 from .rpc import rate_limit, rpc_method
 from .handler import DefaultWebSocketHandler, WebSocketHandler
 from .enum import ServerState, ConnectionState, PacketSource, TimeUnit
@@ -18,7 +26,7 @@ from .websocket import (
 )
 
 
-__version__ = "0.2.5"
+__version__ = "0.3.0"
 __author__ = "Floydous"
 __license__ = "MIT"
 
@@ -31,6 +39,13 @@ __all__ = [
     "ConnectionState",
     "PacketSource",
     "TimeUnit",
+    # Exceptions
+    "NotFoundError",
+    "RPCError",
+    "MessageError",
+    "ConnectionFailedError",
+    "WebSocketError",
+    "PacketError",
     # Typing
     "CertificatePaths",
     # Connection
