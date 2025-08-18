@@ -8,15 +8,7 @@ from webshocket.packets import RPCResponse
 
 
 class _TestRpcHandler(webshocket.WebSocketHandler):
-    async def on_connect(self, connection: webshocket.ClientConnection):
-        pass
-
-    async def on_disconnect(self, connection: webshocket.ClientConnection):
-        pass
-
-    async def on_receive(
-        self, connection: webshocket.ClientConnection, packet: webshocket.Packet
-    ):
+    async def on_receive(self, connection: webshocket.ClientConnection, packet: webshocket.Packet):
         if packet.source != PacketSource.RPC and packet.data is not None:
             await connection.send(packet.data)
         else:
@@ -28,23 +20,18 @@ class _TestRpcHandler(webshocket.WebSocketHandler):
         return data
 
     @rpc_method()
-    async def delayed_response(
-        self, connection: webshocket.ClientConnection, delay: float
-    ):
+    async def delayed_response(self, connection: webshocket.ClientConnection, delay: float):
         await asyncio.sleep(delay)
         return "Delayed response"
 
 
 @pytest.mark.asyncio
 async def test_rate_limit():
-    server = webshocket.WebSocketServer(
-        "localhost", 5000, clientHandler=_TestRpcHandler
-    )
+    server = webshocket.WebSocketServer("localhost", 5000, clientHandler=_TestRpcHandler)
     await server.start()
 
     async with webshocket.WebSocketClient("ws://localhost:5000") as client:
-        await client.send_rpc("sum", a := b"babt")
-        response_packet = await client.recv()
+        response_packet = await client.send_rpc("sum", a := b"babt")
         assert isinstance(response_packet.rpc, RPCResponse)
         assert response_packet.rpc.response == a
 
@@ -53,9 +40,7 @@ async def test_rate_limit():
 
 @pytest.mark.asyncio
 async def test_rpc_timeout():
-    server = webshocket.WebSocketServer(
-        "localhost", 5000, clientHandler=_TestRpcHandler
-    )
+    server = webshocket.WebSocketServer("localhost", 5000, clientHandler=_TestRpcHandler)
     await server.start()
 
     async with webshocket.WebSocketClient("ws://localhost:5000") as client:
@@ -68,9 +53,7 @@ async def test_rpc_timeout():
 
 @pytest.mark.asyncio
 async def test_send_bytes_data():
-    server = webshocket.WebSocketServer(
-        "localhost", 5000, clientHandler=_TestRpcHandler
-    )
+    server = webshocket.WebSocketServer("localhost", 5000, clientHandler=_TestRpcHandler)
     await server.start()
 
     async with webshocket.WebSocketClient("ws://localhost:5000") as client:

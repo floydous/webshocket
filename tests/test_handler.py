@@ -2,7 +2,7 @@ import webshocket
 import websockets
 import pytest
 
-HOST, PORT = ("127.0.0.1", 5000)
+HOST, PORT = "127.0.0.1", 5000
 
 
 class customClientHandler(webshocket.handler.WebSocketHandler):
@@ -11,9 +11,7 @@ class customClientHandler(webshocket.handler.WebSocketHandler):
 
     async def on_disconnect(self, websocket: webshocket.ClientConnection): ...
 
-    async def on_receive(
-        self, websocket: webshocket.ClientConnection, packet: webshocket.Packet
-    ):
+    async def on_receive(self, websocket: webshocket.ClientConnection, packet: webshocket.Packet):
         await websocket.send(f"Echo: {packet.data}")
 
 
@@ -40,9 +38,7 @@ async def test_server_handler() -> None:
 
 @pytest.mark.asyncio
 async def test_max_connection() -> None:
-    server = webshocket.WebSocketServer(
-        HOST, PORT, clientHandler=customClientHandler, max_connection=1
-    )
+    server = webshocket.WebSocketServer(HOST, PORT, clientHandler=customClientHandler, max_connection=1)
     await server.start()
 
     client1 = await webshocket.WebSocketClient(f"ws://{HOST}:{PORT}").connect()

@@ -6,9 +6,7 @@ from webshocket.websocket import client
 from webshocket.packets import Packet
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 
 async def on_receive_message(packet: Packet):

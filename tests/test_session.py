@@ -25,27 +25,38 @@ class StateTestHandler(webshocket.WebSocketHandler):
                 value = getattr(connection, key, "NOT_FOUND")
                 await connection.send(f"VALUE: {value}")
 
-        except (json.JSONDecodeError, KeyError):
+        except (
+            json.JSONDecodeError,
+            KeyError,
+        ):
             await connection.send("ERROR: Invalid command format")
 
 
 @pytest_asyncio.fixture
 async def state_server():
-    host, port = "127.0.0.1", 8778
+    (host, port) = ("127.0.0.1", 8778)
     server = webshocket.WebSocketServer(host, port, clientHandler=StateTestHandler)
     await server.start()
 
-    yield server, f"ws://{host}:{port}"
+    yield (
+        server,
+        f"ws://{host}:{port}",
+    )
     await server.close()
 
 
 @pytest.mark.asyncio
-async def test_session_state_set_and_get(state_server):
+async def test_session_state_set_and_get(
+    state_server,
+):
     """
     Test Case 1: Verifies that state can be set and retrieved on a
     single connection using both attribute and dictionary access.
     """
-    server, uri = state_server
+    (
+        server,
+        uri,
+    ) = state_server
 
     async with webshocket.WebSocketClient(uri) as client:
         await client.send(json.dumps({"command": "set_state", "key": "username", "value": "alice"}))
@@ -60,12 +71,14 @@ async def test_session_state_set_and_get(state_server):
 
 
 @pytest.mark.asyncio
-async def test_session_state_is_isolated_per_client(state_server):
+async def test_session_state_is_isolated_per_client(
+    state_server,
+):
     """
     Verifies that session_state is isolated between two clients,
     using a robust self-identification protocol.
     """
-    server, uri = state_server
+    (server, uri) = state_server
 
     client_a_id = str(uuid.uuid4())
     client_b_id = str(uuid.uuid4())
@@ -93,14 +106,27 @@ async def test_session_state_is_isolated_per_client(state_server):
 
 
 @pytest.mark.asyncio
-async def test_session_state_is_cleared_on_disconnect(state_server):
+async def test_session_state_is_cleared_on_disconnect(
+    state_server,
+):
     """
     Test Case 3: Verifies that a client's state is gone after it disconnects.
     """
-    server, uri = state_server
+    (
+        server,
+        uri,
+    ) = state_server
 
     async with webshocket.WebSocketClient(uri) as client:
-        await client.send(json.dumps({"command": "set_state", "key": "status", "value": "active"}))
+        await client.send(
+            json.dumps(
+                {
+                    "command": "set_state",
+                    "key": "status",
+                    "value": "active",
+                }
+            )
+        )
         await client.recv()
         assert len(server.handler.clients) == 1
 

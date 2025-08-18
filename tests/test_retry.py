@@ -4,7 +4,7 @@ import webshocket
 import webshocket.exceptions
 
 
-HOST, PORT = ("127.0.0.1", 5000)
+HOST, PORT = "127.0.0.1", 5000
 
 
 @pytest.mark.asyncio
@@ -42,7 +42,11 @@ async def test_client_retry_failure_max_attempts():
             webshocket.exceptions.ConnectionFailedError,
             match="All connection attempts failed after multiple retries.",
         ):
-            await client.connect(retry=True, max_retry_attempt=2, retry_interval=1)
+            await client.connect(
+                retry=True,
+                max_retry_attempt=2,
+                retry_interval=1,
+            )
 
         assert client.state == webshocket.ConnectionState.CLOSED
 
@@ -63,7 +67,11 @@ async def test_client_retry_interval_and_attempts():
 
     try:
         start_time = asyncio.get_event_loop().time()
-        await client.connect(retry=True, max_retry_attempt=3, retry_interval=1)
+        await client.connect(
+            retry=True,
+            max_retry_attempt=3,
+            retry_interval=1,
+        )
         end_time = asyncio.get_event_loop().time()
 
         assert client.state == webshocket.ConnectionState.CONNECTED

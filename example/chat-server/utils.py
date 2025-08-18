@@ -57,9 +57,7 @@ class Terminal:
         self.logWindow.clear()
 
         for idx, (timestamp, _level, msg) in enumerate(
-            self.logs
-            if len(self.logs) < self.height - 3
-            else self.logs[len(self.logs) - (self.height - 3) :]
+            self.logs if len(self.logs) < self.height - 3 else self.logs[len(self.logs) - (self.height - 3) :]
         ):
             with suppress(Exception):
                 attr_color = 5

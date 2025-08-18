@@ -1,7 +1,7 @@
 import pytest
 import webshocket
 
-HOST, PORT = ("127.0.0.1", 5000)
+(HOST, PORT) = ("127.0.0.1", 5000)
 
 
 @pytest.mark.asyncio
@@ -25,7 +25,10 @@ async def test_simple_server() -> None:
 
 @pytest.mark.asyncio
 async def test_simple_client() -> None:
-    server = webshocket.WebSocketServer(HOST, PORT)
+    server = webshocket.WebSocketServer(
+        HOST,
+        PORT,
+    )
     await server.start()
 
     async with webshocket.WebSocketClient(f"ws://{HOST}:{PORT}") as client:
