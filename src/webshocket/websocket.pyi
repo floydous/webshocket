@@ -1,13 +1,15 @@
 import websockets
 
-from typing import Optional, Iterable, Union, Any, Callable, Awaitable, Self
+from typing import Optional, Iterable, Union, Any, Callable, Awaitable, Self, TypeVar, Generic
 from .handler import WebSocketHandler, DefaultWebSocketHandler
 from .typing import CertificatePaths, RPC_Function
 from .connection import ClientConnection
 from .packets import Packet
 from .enum import ConnectionState, ServerState
 
-class server:
+H = TypeVar("H", bound=WebSocketHandler)
+
+class server(Generic[H]):
     """
     Represents a WebSocket server that handles incoming connections and messages.
 
@@ -22,11 +24,11 @@ class server:
         port: int,
         *,
         max_connection: Optional[int] = None,
-        clientHandler: type[WebSocketHandler] = DefaultWebSocketHandler,
+        clientHandler: type[H] = DefaultWebSocketHandler,
         certificate: Optional[CertificatePaths] = None,
     ) -> None: ...
     state: ServerState
-    handler: WebSocketHandler
+    handler: H
 
     def register_rpc_method(self, func: "RPC_Function", alias_name: Optional[str] = None) -> None: ...
     def subscribe(self, client: "ClientConnection", channel: str | Iterable) -> None: ...
