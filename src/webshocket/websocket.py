@@ -340,7 +340,9 @@ class server:
             self.state = ServerState.CLOSED
             self._server = None
 
-    def _select_subprotocol(self, _, subprotocols: Sequence[websockets.Subprotocol]) -> websockets.Subprotocol | None:
+    def _select_subprotocol(
+        self, _, subprotocols: Sequence[websockets.Subprotocol]
+    ) -> websockets.Subprotocol | None:
         if DEFAULT_WEBSHOCKET_SUBPROTOCOL in subprotocols:
             return cast(websockets.Subprotocol, DEFAULT_WEBSHOCKET_SUBPROTOCOL)
 
@@ -351,7 +353,9 @@ class server:
         try:
             return getattr(self.handler, name)
         except AttributeError:
-            raise AttributeError(f"'{type(self).__name__}' object and its handler have no attribute '{name}'") from None
+            raise AttributeError(
+                f"'{type(self).__name__}' object and its handler have no attribute '{name}'"
+            ) from None
 
     async def __aenter__(self) -> Self:
         """
@@ -380,7 +384,7 @@ class client:
         on_receive: Optional[Callable[[Packet], Awaitable[None]]] = None,
         *,
         ca_cert_path: Optional[str] = None,
-        max_packet_qsize: int = 1,
+        max_packet_qsize: int = 128,
     ) -> None:
         """Initializes a new WebSocket client instance.
 
@@ -436,7 +440,9 @@ class client:
 
         try:
             async for data in self._protocol:
-                packet: Packet = server._to_packet(data, cast(websockets.Subprotocol, DEFAULT_WEBSHOCKET_SUBPROTOCOL))
+                packet: Packet = server._to_packet(
+                    data, cast(websockets.Subprotocol, DEFAULT_WEBSHOCKET_SUBPROTOCOL)
+                )
 
                 if isinstance(packet.rpc, RPCResponse) and packet.source == PacketSource.RPC:
                     packet.data = packet.rpc.response

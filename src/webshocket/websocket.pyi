@@ -64,6 +64,7 @@ class client:
         on_receive: Optional[Callable[[Packet], Awaitable[None]]] = None,
         *,
         ca_cert_path: Optional[str] = None,
+        max_packet_qsize: int = 128,
     ) -> None: ...
     state: ConnectionState = ConnectionState.DISCONNECTED
     on_receive_callback: Callable[[Packet], Awaitable[None]]
