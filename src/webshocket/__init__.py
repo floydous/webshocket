@@ -6,27 +6,40 @@ client and server abstractions.
 import logging
 
 
-from .exceptions import (
-    NotFoundError,
-    RPCError,
-    MessageError,
-    ConnectionFailedError,
-    WebSocketError,
-    PacketError,
-)
-from .rpc import rate_limit, rpc_method
+from .rpc import rpc_method, rate_limit
+from .predicate import Has, Is, IsEqual, Any, All
 from .handler import DefaultWebSocketHandler, WebSocketHandler
-from .enum import ServerState, ConnectionState, PacketSource, TimeUnit
+from .enum import ServerState, ConnectionState, PacketSource
 from .typing import CertificatePaths
 from .connection import ClientConnection
 from .packets import Packet, RPCRequest, RPCResponse
+from .exceptions import (
+    # Base
+    WebSocketError,
+    # Connection
+    ConnectionError,
+    ConnectionFailedError,
+    ConnectionClosedError,
+    InvalidURIError,
+    # Message/Packet
+    MessageError,
+    PacketError,
+    PacketValidationError,
+    # Timeout
+    TimeoutError,
+    ReceiveTimeoutError,
+    RPCTimeoutError,
+    # RPC
+    RPCError,
+    RPCMethodNotFoundError,
+)
 from .websocket import (
     server as WebSocketServer,
     client as WebSocketClient,
 )
 
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 __author__ = "Floydous"
 __license__ = "MIT"
 
@@ -38,14 +51,20 @@ __all__ = [
     "ServerState",
     "ConnectionState",
     "PacketSource",
-    "TimeUnit",
     # Exceptions
-    "NotFoundError",
-    "RPCError",
-    "MessageError",
-    "ConnectionFailedError",
     "WebSocketError",
+    "ConnectionError",
+    "ConnectionFailedError",
+    "ConnectionClosedError",
+    "InvalidURIError",
+    "MessageError",
     "PacketError",
+    "PacketValidationError",
+    "TimeoutError",
+    "ReceiveTimeoutError",
+    "RPCTimeoutError",
+    "RPCError",
+    "RPCMethodNotFoundError",
     # Typing
     "CertificatePaths",
     # Connection
@@ -60,6 +79,12 @@ __all__ = [
     # RPC
     "rpc_method",
     "rate_limit",
+    # Predicates
+    "Has",
+    "Is",
+    "IsEqual",
+    "Any",
+    "All",
 ]
 
 log = logging.getLogger(__name__)
