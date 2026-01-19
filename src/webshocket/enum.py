@@ -1,7 +1,7 @@
-from enum import IntEnum, Enum, auto
+from enum import IntEnum
 
 
-class ConnectionState(Enum):
+class ConnectionState(IntEnum):
     """Represents the various states of a WebSocket connection.
 
     Attributes:
@@ -11,13 +11,13 @@ class ConnectionState(Enum):
         CLOSED: The connection has been explicitly closed.
     """
 
-    DISCONNECTED = auto()
-    CONNECTING = auto()
-    CONNECTED = auto()
-    CLOSED = auto()
+    DISCONNECTED = 1
+    CONNECTING = 2
+    CONNECTED = 3
+    CLOSED = 4
 
 
-class ServerState(Enum):
+class ServerState(IntEnum):
     """Represents the various states of the WebSocket server itself.
 
     Attributes:
@@ -25,11 +25,11 @@ class ServerState(Enum):
         SERVING: The server is actively running and accepting new connections.
     """
 
-    CLOSED = auto()
-    SERVING = auto()
+    CLOSED = 1
+    SERVING = 2
 
 
-class PacketSource(Enum):
+class PacketSource(IntEnum):
     """Represents the source of a packet that is being sent.
 
     Attributes:
@@ -40,19 +40,11 @@ class PacketSource(Enum):
         RPC: A packet sent in response to an RPC request.
     """
 
-    BROADCAST = auto()
-    CHANNEL = auto()
-    UNKNOWN = auto()
-    CUSTOM = auto()
-    RPC = auto()
-
-
-class TimeUnit(IntEnum):
-    """Represents time units for rate limiting."""
-
-    SECOND = 1
-    MINUTES = 60
-    HOURS = 3600
+    BROADCAST = 1
+    CHANNEL = 2
+    UNKNOWN = 3
+    CUSTOM = 4
+    RPC = 5
 
 
 class RPCErrorCode(IntEnum):
