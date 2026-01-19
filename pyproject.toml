@@ -1,13 +1,12 @@
 [project]
 name = "webshocket"
-version = "0.3.0"
+version = "0.4.0"
 description = "An enhanced module to provide a robust, socket-like abstraction for WebSockets"
 readme = "README.md"
 requires-python = ">=3.8"
 
 dependencies = [
-    "msgpack>=1.1.1",
-    "pydantic>=2.10.6",
+    "msgspec>=0.18.6",
     "websockets>=13.1",
 ]
 
