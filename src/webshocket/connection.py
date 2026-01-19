@@ -1,21 +1,26 @@
 import asyncio
-import pydantic
-import msgpack
+import logging
+import msgspec
 
 from uuid import uuid4
 from websockets import ServerConnection
-from typing import Any, Iterable, Union, Optional, cast, TYPE_CHECKING
+from typing import Any, Iterable, Union, Optional, cast, TYPE_CHECKING, TypeVar, Generic
 
 from .packets import Packet, RPCResponse, serialize, deserialize
 from .enum import PacketSource, ConnectionState
 from .typing import DEFAULT_WEBSHOCKET_SUBPROTOCOL
 from .handler import DefaultWebSocketHandler
+from .exceptions import ConnectionClosedError, ReceiveTimeoutError
 
 if TYPE_CHECKING:
     from .handler import WebSocketHandler
 
 
-class ClientConnection:
+_MISSING = object()  # Marker for missing attributes
+TState = TypeVar("TState")
+
+
+class ClientConnection(Generic[TState]):
     """Represents a single client connection to the WebSocket server.
 
     This class wraps the underlying `websockets.ServerConnection` and provides
@@ -23,6 +28,16 @@ class ClientConnection:
     It allows setting and getting attributes dynamically, which are stored
     in an internal `session_state` dictionary.
     """
+
+    __slots__ = (
+        "_packet_queue",
+        "_protocol",
+        "_handler",
+        "connection_state",
+        "session_state",
+        "uid",
+        "logger",
+    )
 
     def __init__(self, websocket_protocol: ServerConnection, handler: "WebSocketHandler", packet_qsize: int = 1) -> None:
         """
@@ -43,6 +58,7 @@ class ClientConnection:
         object.__setattr__(self, "connection_state", ConnectionState.CONNECTED)
         object.__setattr__(self, "session_state", dict())
         object.__setattr__(self, "uid", uuid4())
+        object.__setattr__(self, "logger", logging.getLogger("webshocket.connection"))
 
     @property
     def subscribed_channel(self) -> set[str]:
@@ -100,7 +116,7 @@ class ClientConnection:
         )
 
         await self._protocol.send(
-            serialize(packet) if self._protocol.subprotocol == DEFAULT_WEBSHOCKET_SUBPROTOCOL else packet.model_dump_json()
+            serialize(packet) if self._protocol.subprotocol == DEFAULT_WEBSHOCKET_SUBPROTOCOL else msgspec.json.encode(packet)
         )
 
     async def recv(self, timeout: Optional[float] = 30.0) -> Packet:
@@ -129,7 +145,7 @@ class ClientConnection:
         packet: Packet
 
         if not self._protocol or self.connection_state == ConnectionState.DISCONNECTED:
-            raise ConnectionError("Cannot receive data: client is not connected.")
+            raise ConnectionClosedError("Cannot receive data: client is not connected.")
 
         try:
             if isinstance(self._handler, DefaultWebSocketHandler):
@@ -144,9 +160,11 @@ class ClientConnection:
                 if self._protocol.subprotocol == DEFAULT_WEBSHOCKET_SUBPROTOCOL:
                     packet = deserialize(raw_data, Packet)
                 else:
-                    packet = Packet.model_validate_json(raw_data)
+                    # packet = Packet.model_validate_json(raw_data)
+                    packet = msgspec.json.decode(raw_data, type=Packet)
 
-            except (pydantic.ValidationError, msgpack.exceptions.ExtraData, TypeError):
+            except (msgspec.ValidationError, msgspec.DecodeError, TypeError) as e:
+                self.logger.debug("Failed to decode packet from %s: %s", self.remote_address, e)
                 packet = Packet(
                     data=raw_data,
                     source=PacketSource.UNKNOWN,
@@ -156,7 +174,7 @@ class ClientConnection:
             return packet
 
         except asyncio.TimeoutError:
-            raise TimeoutError(f"Receive operation timed out after {timeout} seconds.") from None
+            raise ReceiveTimeoutError(f"Receive operation timed out after {timeout} seconds.") from None
 
     def subscribe(self, channel: Union[str, Iterable[str]]) -> None:
         """A shortcut method for this connection to join one or more channels.
@@ -184,8 +202,8 @@ class ClientConnection:
         Called when setting an attribute. All assignments are redirected
         to the session_state dictionary.
         """
-        # self.session_state[name] = value
-        self.__dict__["session_state"][name] = value
+        session_state = object.__getattribute__(self, "session_state")
+        session_state[name] = value
 
     def __getattr__(self, name: str) -> Any:
         """Called when reading `session_state` via `connection._example_data`
@@ -195,19 +213,21 @@ class ClientConnection:
             2. Check the underlying websocket protocol object.
             3. Raise an AttributeError if not found anywhere.
         """
-        try:
-            return self.__dict__["session_state"][name]
-        except KeyError:
-            try:
-                return getattr(self._protocol, name)
-            except AttributeError:
-                raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'") from None
+        session_state: dict = object.__getattribute__(self, "session_state")
+
+        if (value := session_state.get(name, _MISSING)) is not _MISSING:
+            return value
+
+        if (value := getattr(self._protocol, name, _MISSING)) is not _MISSING:
+            return value
+
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'") from None
 
     def __delattr__(self, name: str) -> None:
         """Called when deleting an attribute (e.g., `del connection.username`)."""
 
-        if name in self.__dict__["session_state"]:
-            del self.__dict__["session_state"][name]
+        if name in object.__getattribute__(self, "session_state"):
+            del object.__getattribute__(self, "session_state")[name]
         else:
             super().__delattr__(name)
 
