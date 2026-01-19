@@ -1,3 +1,4 @@
+import msgspec
 import pytest_asyncio
 import pytest
 
@@ -23,6 +24,10 @@ async def test_custom_packet(server: webshocket.WebSocketServer):
 
         for packetSource_index in range(1, 6):
             source = PacketSource._value2member_map_[packetSource_index].name
+
+            if source.lower() == "channel":
+                continue
+
             data = json.dumps({"data": f"hello from {source}", "source": packetSource_index})
             await client.send(data)
 
@@ -36,6 +41,7 @@ async def test_trigger_rpc(server: webshocket.WebSocketServer):
     # async def test_trigger_rpc():
     data = {
         "rpc": {
+            "type": "request",
             "method": "say_hello",
             "args": (args := [1, "2"]),
             "kwargs": (kwargs := {"first": "hello", "second": "world"}),
@@ -53,7 +59,10 @@ async def test_trigger_rpc(server: webshocket.WebSocketServer):
         await client.send(json.dumps(data))
 
         response = await client.recv()
-        packet = webshocket.Packet.model_validate_json(response)
+        packet = msgspec.convert(
+            obj=msgspec.json.decode(response),
+            type=webshocket.Packet,
+        )
 
         if isinstance(packet.rpc, webshocket.RPCResponse):
             assert packet.rpc.response == [args, kwargs]

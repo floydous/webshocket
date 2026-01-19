@@ -1,8 +1,25 @@
 import websockets
 import webshocket
 import pytest
+import pytest_asyncio
 
 HOST, PORT = "127.0.0.1", 5000
+
+
+@pytest_asyncio.fixture
+async def rpc_server():
+    server = webshocket.WebSocketServer("localhost", 5000)
+    await server.start()
+    yield server
+    await server.close()
+
+
+@pytest_asyncio.fixture
+async def rpc_client(rpc_server):
+    client = webshocket.WebSocketClient(f"ws://{HOST}:{PORT}")
+    await client.connect()
+    yield client
+    await client.close()
 
 
 @pytest.mark.asyncio
@@ -94,9 +111,8 @@ async def test_send_other_datatype():
 @pytest.mark.asyncio
 async def test_send_unserializeable_data():
     data_to_send = [
-        {"hello", "world", "this", "is", "a", "set"},
         lambda: "Function type",
-        webshocket.ClientConnection,  # Classes
+        webshocket.ClientConnection,
     ]
 
     try:

@@ -6,13 +6,13 @@ HOST, PORT = "127.0.0.1", 5000
 
 
 class customClientHandler(webshocket.handler.WebSocketHandler):
-    async def on_connect(self, websocket: webshocket.ClientConnection):
-        await websocket.send("I just joined!")
+    async def on_connect(self, connection: webshocket.ClientConnection):
+        await connection.send("I just joined!")
 
-    async def on_disconnect(self, websocket: webshocket.ClientConnection): ...
+    async def on_disconnect(self, connection: webshocket.ClientConnection): ...
 
-    async def on_receive(self, websocket: webshocket.ClientConnection, packet: webshocket.Packet):
-        await websocket.send(f"Echo: {packet.data}")
+    async def on_receive(self, connection: webshocket.ClientConnection, packet: webshocket.Packet):
+        await connection.send(f"Echo: {packet.data}")
 
 
 @pytest.mark.asyncio

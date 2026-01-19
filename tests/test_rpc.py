@@ -45,7 +45,7 @@ class _TestRpcHandler(webshocket.WebSocketHandler):
         pass
 
     @rpc_method()
-    @rate_limit(limit=0, unit=webshocket.TimeUnit.MINUTES)
+    @rate_limit(limit=0, period="1m")
     async def raise_rate_limit_exceeded(self, connection: webshocket.ClientConnection):
         pass
 

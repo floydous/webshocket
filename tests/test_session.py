@@ -4,14 +4,13 @@ import asyncio
 import json
 import uuid
 import webshocket
-
-from typing import Any
+from webshocket import Packet
 
 
 class StateTestHandler(webshocket.WebSocketHandler):
-    async def on_receive(self, connection: webshocket.ClientConnection, data: Any):
+    async def on_receive(self, connection: webshocket.ClientConnection, packet: Packet):
         try:
-            command_data = json.loads(data.data)
+            command_data = json.loads(packet.data)
             command = command_data.get("command")
 
             if command == "set_state":
