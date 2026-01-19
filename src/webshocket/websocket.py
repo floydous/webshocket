@@ -1,27 +1,44 @@
+import logging
 import asyncio
 import websockets
 import ssl
 import pathlib
 import random
-import pydantic
 import time
-import msgpack
+import msgspec
 
 from contextlib import suppress
-from typing import Optional, Callable, Awaitable, Union, Any, Self, Sequence, cast
+from typing import Optional, Callable, Awaitable, Union, Any, Self, Sequence, TypeVar, Generic, cast
 
+from .packets import RPCResponse
 from .handler import WebSocketHandler, DefaultWebSocketHandler
-from .typing import CertificatePaths, DEFAULT_WEBSHOCKET_SUBPROTOCOL
+from .typing import (
+    CertificatePaths,
+    RPCMethod,
+    RateLimitConfig,
+    RPC_Predicate,
+    DEFAULT_WEBSHOCKET_SUBPROTOCOL,
+)
 from .enum import ConnectionState, PacketSource, ServerState, RPCErrorCode
+from .packets import Packet, RPCRequest, serialize, deserialize
 from .connection import ClientConnection
-from .exceptions import ConnectionFailedError, WebSocketError, RPCError
-from .packets import Packet, RPCRequest, RPCResponse, serialize, deserialize
+from .exceptions import (
+    ConnectionFailedError,
+    ConnectionClosedError,
+    WebSocketError,
+    RPCError,
+    InvalidURIError,
+    RPCTimeoutError,
+    ReceiveTimeoutError,
+    RateLimitError,
+)
 
-import websockets.asyncio
 import websockets.asyncio.server
 
+H = TypeVar("H", bound=WebSocketHandler)
 
-class server:
+
+class server(Generic[H]):
     """Represents a WebSocket server that handles incoming connections and messages.
 
     This class provides functionality to start, manage, and close a WebSocket server,
@@ -34,7 +51,7 @@ class server:
         host: str,
         port: int,
         *,
-        clientHandler: type[WebSocketHandler] = DefaultWebSocketHandler,
+        clientHandler: type[H] = DefaultWebSocketHandler,
         certificate: Optional[CertificatePaths] = None,
         max_connection: Optional[int] = None,
         packet_qsize: int = 1,
@@ -51,6 +68,7 @@ class server:
                                                       the SSL certificate and key files for WSS connections.
                                                       Defaults to None for WS connections.
         """
+        self.logger = logging.getLogger("webshocket.server")
         self.state: ServerState = ServerState.CLOSED
         self.host, self.port = host, port
         self.handler = clientHandler()
@@ -76,9 +94,9 @@ class server:
     def _to_packet(data: str | bytes, subprotocol: websockets.Subprotocol | None) -> Packet:
         """Converts raw data or json-model data into structured Packet-type data"""
 
-        packet: Packet
+        packet = Packet(data=data, source=PacketSource.UNKNOWN, channel=None)
 
-        try:
+        with suppress(msgspec.ValidationError, msgspec.DecodeError, TypeError):
             if subprotocol is not None:
                 if not isinstance(data, bytes):
                     raise TypeError("Data to be deserialize must be a bytes, not %s" % type(data))
@@ -87,22 +105,12 @@ class server:
                     packet = deserialize(cast(bytes, data), Packet)
 
             else:
-                packet = Packet.model_validate_json(data)
-
-            return packet
-
-        except (pydantic.ValidationError, msgpack.exceptions.ExtraData):
-            packet = Packet(
-                data=data,
-                source=PacketSource.UNKNOWN,
-                channel=None,
-            )
+                packet = msgspec.json.decode(data, type=Packet)
 
         return packet
 
     async def _handle_rpc_request(
         self,
-        handler: WebSocketHandler,
         connection: "ClientConnection",
         rpc_request: RPCRequest,
     ) -> None:
@@ -111,14 +119,11 @@ class server:
         RPC method on the handler and sending back a response.
 
         Args:
-            handler (WebSocketHandler): The handler instance.
             connection (ClientConnection): The client connection that sent the request.
             rpc_request (RPCRequest): The parsed RPC request.
         """
 
         method_name = rpc_request.method
-        args = rpc_request.args
-        kwargs = rpc_request.kwargs
         call_id = rpc_request.call_id
 
         error: RPCErrorCode | None = None
@@ -126,11 +131,9 @@ class server:
         result: Any = None
 
         try:
-            rpc_func = handler._rpc_methods.get(method_name, None)
-            is_rate_limited = getattr(rpc_func, "_rate_limit", None)
-            is_restricted = getattr(rpc_func, "_restricted", None)
+            rpc_function: RPCMethod | None = self.handler._rpc_methods.get(method_name, None)
 
-            if rpc_func is None or not getattr(rpc_func, "_is_rpc_method", False):
+            if rpc_function is None:
                 await connection._send_rpc_response(
                     RPCResponse(
                         call_id=call_id,
@@ -138,42 +141,26 @@ class server:
                         error=RPCErrorCode.METHOD_NOT_FOUND,
                     ),
                 )
-
                 return
 
-            if is_restricted and not is_restricted(connection):
-                await connection._send_rpc_response(
-                    RPCResponse(
-                        call_id=call_id,
-                        response=f"Access denied for RPC method '{method_name}'.",
-                        error=RPCErrorCode.ACCESS_DENIED,
-                    )
-                )
-                return
+            if restriction := rpc_function.restricted:
+                access_error = self._check_restricted_access(connection, restriction, call_id, method_name)
 
-            if is_rate_limited:
-                limit, unit, key = is_rate_limited
-                list_client = getattr(rpc_func, "_list_client")
+                if access_error:
+                    await connection._send_rpc_response(access_error)
+                    return
 
-                if time.time() - list_client[key(connection)]["last_called"] > unit.value:
-                    list_client[key(connection)]["last_called"] = time.time()
-                    list_client[key(connection)]["count"] = 0
+            if rate_limit := rpc_function.rate_limit:
+                limit_error = await self._check_rate_limit(connection, rpc_function.func, rate_limit, call_id, method_name)
 
-                if list_client[key(connection)]["count"] >= limit:
-                    await connection._send_rpc_response(
-                        RPCResponse(
-                            call_id=call_id,
-                            response=f"Rate limit exceeded for RPC method '{method_name}'.",
-                            error=RPCErrorCode.RATE_LIMIT_EXCEEDED,
-                        )
-                    )
+                if limit_error:
+                    await connection._send_rpc_response(limit_error)
+                    return
 
-                list_client[key(connection)]["count"] += 1
-
-            result = await rpc_func(
+            result = await self._execute_rpc_method(
                 connection,
-                *args,
-                **cast(dict[str, Any], kwargs),
+                rpc_function.func,
+                rpc_request,
             )
 
         except RPCError as rcp_error:
@@ -187,9 +174,8 @@ class server:
         except Exception as e:
             error_message = f"Server error ({type(e).__name__}): {e}"
             error = RPCErrorCode.INTERNAL_SERVER_ERROR
-            import traceback
 
-            traceback.print_exc()
+            self.logger.exception("RPC execution failed for method '%s'", method_name)
 
         finally:
             rpc_response = RPCResponse(
@@ -200,6 +186,71 @@ class server:
 
             if connection.connection_state == ConnectionState.CONNECTED:
                 await connection._send_rpc_response(rpc_response)
+
+    def _check_restricted_access(
+        self,
+        connection: "ClientConnection",
+        restricted: RPC_Predicate,
+        call_id: str,
+        method_name: str,
+    ) -> Optional[RPCResponse]:
+        """Checks if the client has access to the RPC method."""
+        if not restricted(connection):
+            return RPCResponse(
+                call_id=call_id,
+                response=f"Access denied for RPC method '{method_name}'.",
+                error=RPCErrorCode.ACCESS_DENIED,
+            )
+
+        return None
+
+    async def _check_rate_limit(
+        self,
+        connection: "ClientConnection",
+        rpc_func: Callable,
+        rate_limit: RateLimitConfig,
+        call_id: str,
+        method_name: str,
+    ) -> Optional[RPCResponse]:
+        """Checks and enforces the rate limit for the RPC method."""
+        currentTime = time.time()
+        storageKey = "_rate_limit_" + rpc_func.__name__
+
+        if storageKey not in connection.session_state:
+            connection.session_state[storageKey] = {
+                "last_called": currentTime,
+                "count": 0,
+            }
+
+        if currentTime - connection.session_state[storageKey]["last_called"] >= rate_limit.period:
+            connection.session_state[storageKey]["last_called"] = currentTime
+            connection.session_state[storageKey]["count"] = 0
+
+        if connection.session_state[storageKey]["count"] >= rate_limit.limit:
+            if rate_limit.disconnect_on_limit_exceeded:
+                await connection.close(code=1008, reason="Rate limit exceeded")
+
+            return RPCResponse(
+                call_id=call_id,
+                response=f"Rate limit exceeded for RPC method '{method_name}'.",
+                error=RPCErrorCode.RATE_LIMIT_EXCEEDED,
+            )
+
+        connection.session_state[storageKey]["count"] += 1
+        return None
+
+    async def _execute_rpc_method(
+        self,
+        connection: "ClientConnection",
+        rpc_func: Callable,
+        rpc_request: RPCRequest,
+    ) -> Any:
+        """Executes the RPC method with the provided arguments."""
+        return await rpc_func(
+            connection,
+            *rpc_request.args,
+            **cast(dict[str, Any], rpc_request.kwargs),
+        )
 
     async def _handler(self, websocket_protocol: websockets.ServerConnection) -> None:
         """Internal handler for new WebSocket connections.
@@ -220,6 +271,8 @@ class server:
             )
             return
 
+        _remote_address = ":".join(tuple(map(str, websocket_protocol.remote_address)))
+
         _websocket: ClientConnection = ClientConnection(
             websocket_protocol=websocket_protocol,
             packet_qsize=self._packet_qsize,
@@ -231,6 +284,7 @@ class server:
 
         self.handler.clients.add(_websocket)
         await self.handler.on_connect(_websocket)
+        self.logger.info("New connection from %s", _remote_address)
 
         try:
             async for data in websocket_protocol:
@@ -240,7 +294,7 @@ class server:
                 )
 
                 if packet.source == PacketSource.RPC and isinstance(packet.rpc, RPCRequest):
-                    await self._handle_rpc_request(self.handler, _websocket, packet.rpc)
+                    asyncio.create_task(self._handle_rpc_request(_websocket, packet.rpc))
                     continue
 
                 if isinstance(self.handler, DefaultWebSocketHandler):
@@ -253,6 +307,8 @@ class server:
             pass
 
         finally:
+            self.logger.info("Connection (%s) closed.", _remote_address)
+
             _websocket.connection_state = ConnectionState.DISCONNECTED
             self.handler.clients.discard(_websocket)
 
@@ -309,6 +365,7 @@ class server:
             )
 
             self.state = ServerState.SERVING
+            self.logger.info("Server started on %s:%s" % (self.host, self.port))
 
         return self
 
@@ -340,9 +397,7 @@ class server:
             self.state = ServerState.CLOSED
             self._server = None
 
-    def _select_subprotocol(
-        self, _, subprotocols: Sequence[websockets.Subprotocol]
-    ) -> websockets.Subprotocol | None:
+    def _select_subprotocol(self, _, subprotocols: Sequence[websockets.Subprotocol]) -> websockets.Subprotocol | None:
         if DEFAULT_WEBSHOCKET_SUBPROTOCOL in subprotocols:
             return cast(websockets.Subprotocol, DEFAULT_WEBSHOCKET_SUBPROTOCOL)
 
@@ -353,9 +408,7 @@ class server:
         try:
             return getattr(self.handler, name)
         except AttributeError:
-            raise AttributeError(
-                f"'{type(self).__name__}' object and its handler have no attribute '{name}'"
-            ) from None
+            raise AttributeError(f"'{type(self).__name__}' object and its handler have no attribute '{name}'") from None
 
     async def __aenter__(self) -> Self:
         """
@@ -409,12 +462,13 @@ class client:
         self._rpc_pending_request: dict[str, asyncio.Future] = {}
 
         self.state = ConnectionState.DISCONNECTED
+        self.logger = logging.getLogger("webshocket.client")
         self.on_receive_callback = on_receive
         self.cert = ca_cert_path
         self.uri = uri
 
         if not (uri.startswith("ws://") or uri.startswith("wss://")):
-            raise ValueError("Please include the websocket protocol `wss://` or `ws://` on the address")
+            raise InvalidURIError("Please include the websocket protocol `wss://` or `ws://` on the address")
 
         if self.uri.startswith("wss://"):
             self._context = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH)
@@ -433,16 +487,14 @@ class client:
             NotImplementedError: If the client is not connected or `on_receive_callback` is not set.
         """
         if self._protocol is None:
-            raise NotImplementedError("Cannot handle server: not connected")
+            raise ConnectionClosedError("Cannot handle server: not connected")
 
         if not self._protocol:
             return
 
         try:
             async for data in self._protocol:
-                packet: Packet = server._to_packet(
-                    data, cast(websockets.Subprotocol, DEFAULT_WEBSHOCKET_SUBPROTOCOL)
-                )
+                packet: Packet = server._to_packet(data, cast(websockets.Subprotocol, DEFAULT_WEBSHOCKET_SUBPROTOCOL))
 
                 if isinstance(packet.rpc, RPCResponse) and packet.source == PacketSource.RPC:
                     packet.data = packet.rpc.response
@@ -484,6 +536,7 @@ class client:
             **kwargs,
         )
         self.state = ConnectionState.CONNECTED
+        self.logger.info("Successfully connected to %s", self.uri)
         self._listener_task = asyncio.create_task(self._handler())
 
     async def connect(
@@ -554,11 +607,12 @@ class client:
 
         await self._protocol.send(serialize(packet))
 
-    async def send_rpc(self, method_name: str, *args, **kwargs) -> Packet:
+    async def send_rpc(self, method_name: str, /, *args, raise_on_rate_limit: bool = False, **kwargs) -> Packet[RPCResponse]:
         """Sends an RPC message to the WebSocket server.
 
         Args:
             method_name (str): The name of the RPC method to call.
+            raise_on_rate_limit (bool): If True, raises an exception if the RPC call fails.
 
         Raises:
             WebSocketError: If the client is not connected.
@@ -576,13 +630,14 @@ class client:
             await self._protocol.send(serialize(packet))
 
             response_packet = await asyncio.wait_for(future, timeout=30)
-            rpc_response = cast(Packet, response_packet)
+            rpc_response = cast(Packet[RPCResponse], response_packet)
+
+            if isinstance(rpc_response.rpc, RPCResponse) and rpc_response.rpc.error == RPCErrorCode.RATE_LIMIT_EXCEEDED:
+                if raise_on_rate_limit:
+                    raise RateLimitError("RPC call rate limit exceeded.")
 
         except asyncio.TimeoutError:
-            raise TimeoutError("RPC request timed out.")
-
-        except Exception as err:
-            raise err
+            raise RPCTimeoutError("RPC request timed out.")
 
         finally:
             if rpc_request.call_id in self._rpc_pending_request:
@@ -613,7 +668,7 @@ class client:
             return packet
 
         except TimeoutError:
-            raise TimeoutError(f"Receive operation timed out after {timeout} seconds.")
+            raise ReceiveTimeoutError(f"Receive operation timed out after {timeout} seconds.")
 
     async def close(self) -> None:
         """Closes the WebSocket client connection gracefully.

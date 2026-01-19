@@ -1,10 +1,9 @@
 import websockets
-
 from typing import Optional, Iterable, Union, Any, Callable, Awaitable, Self, TypeVar, Generic
 from .handler import WebSocketHandler, DefaultWebSocketHandler
 from .typing import CertificatePaths, RPC_Function
 from .connection import ClientConnection
-from .packets import Packet
+from .packets import Packet, RPCResponse
 from .enum import ConnectionState, ServerState
 
 H = TypeVar("H", bound=WebSocketHandler)
@@ -18,31 +17,36 @@ class server(Generic[H]):
     It supports both secure (WSS) and unsecure (WS) connections.
     """
 
+    state: ServerState
+    handler: H
+    host: str
+    port: int
+    certificate: Optional[CertificatePaths]
+    max_connection: Optional[int]
+
     def __init__(
         self,
         host: str,
         port: int,
         *,
-        max_connection: Optional[int] = None,
         clientHandler: type[H] = DefaultWebSocketHandler,
         certificate: Optional[CertificatePaths] = None,
+        max_connection: Optional[int] = None,
+        packet_qsize: int = 1,
     ) -> None: ...
-    state: ServerState
-    handler: H
-
     def register_rpc_method(self, func: "RPC_Function", alias_name: Optional[str] = None) -> None: ...
     def subscribe(self, client: "ClientConnection", channel: str | Iterable) -> None: ...
     def unsubscribe(self, client: "ClientConnection", channel: str | Iterable) -> None: ...
     async def broadcast(
         self,
         data: Union[str | bytes, Packet],
-        exclude: Optional[tuple["ClientConnection"]] = None,
+        exclude: Optional[tuple["ClientConnection", ...]] = None,
     ) -> None: ...
     async def publish(
         self,
         channel: str | Iterable[str],
         data: Union[str | bytes, Packet],
-        exclude: Optional[tuple["ClientConnection"]] = None,
+        exclude: Optional[tuple["ClientConnection", ...]] = None,
     ) -> None: ...
     async def _handler(self, websocket_protocol: websockets.ServerConnection) -> None: ...
     async def accept(self) -> ClientConnection: ...
@@ -58,6 +62,11 @@ class server(Generic[H]):
     def channels(self) -> dict[str, set[ClientConnection]]: ...
 
 class client:
+    state: ConnectionState
+    on_receive_callback: Optional[Callable[[Packet], Awaitable[None]]]
+    cert: Optional[str]
+    uri: str
+
     def __init__(
         self,
         uri: str,
@@ -66,11 +75,6 @@ class client:
         ca_cert_path: Optional[str] = None,
         max_packet_qsize: int = 128,
     ) -> None: ...
-    state: ConnectionState = ConnectionState.DISCONNECTED
-    on_receive_callback: Callable[[Packet], Awaitable[None]]
-    cert: str
-    uri: str
-
     async def _handler(self) -> None: ...
     async def _connect_once(self, **kwargs) -> None: ...
     async def connect(
@@ -80,7 +84,7 @@ class client:
         retry_interval: int = 2,
         **kwargs,
     ) -> Self: ...
-    async def send_rpc(self, method_name: str, *args, **kwargs) -> Packet: ...
+    async def send_rpc(self, method_name: str, *args, raise_on_rate_limit: bool = False, **kwargs) -> Packet[RPCResponse]: ...
     async def send(self, data: Union[Any, Packet]) -> None: ...
     async def recv(self, timeout: int | None = 30) -> Packet: ...
     async def close(self) -> None: ...
