@@ -16,3 +16,4 @@ uv.lock
 /.vscode
 pyproject.toml.backup
 *.ini
+GEMINI.md
