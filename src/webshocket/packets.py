@@ -1,25 +1,26 @@
 import time
 import uuid
-import msgpack
+import msgspec
 
-from typing import Optional, Any, Union, Self, TypeVar, Type, Sequence, cast
-from pydantic import BaseModel, model_validator, Field
-from .enum import PacketSource, Enum, RPCErrorCode
+from typing import Generic, Optional, Any, TypeVar, Type, Sequence, cast
+from msgspec import field
 
-T = TypeVar("T", bound=BaseModel)
+from .enum import PacketSource, RPCErrorCode
+from .exceptions import PacketValidationError
+
+T = TypeVar("T", bound=msgspec.Struct)
 
 
-class RPCRequest(BaseModel):
+class RPCRequest(msgspec.Struct, tag="request"):
     """Represents an RPC (Remote Procedure Call) request."""
-
-    call_id: str = Field(default_factory=lambda: uuid.uuid4().hex)
 
     method: str
     args: Sequence[Any] = tuple()
     kwargs: dict[str, Any] = dict()
+    call_id: str = field(default_factory=lambda: uuid.uuid4().hex)
 
 
-class RPCResponse(BaseModel):
+class RPCResponse(msgspec.Struct, tag="response"):
     """Represents an RPC (Remote Procedure Call) response."""
 
     call_id: str
@@ -28,7 +29,10 @@ class RPCResponse(BaseModel):
     error: None | RPCErrorCode = None
 
 
-class Packet(BaseModel):
+RType = TypeVar("RType", bound=RPCRequest | RPCResponse)
+
+
+class Packet(Generic[RType], msgspec.Struct):
     """A structured data packet for WebSocket communication.
 
     Attributes:
@@ -37,26 +41,33 @@ class Packet(BaseModel):
         channel (str | None): The channel associated with the packet.
         timestamp (float): The timestamp when the packet was created.
         correlation_id (uuid.UUID | None): The correlation ID associated with the packet.
-        rpc (Union[RPCRequest, RPCResponse, None]): Optional RPC request or response data.
+        rpc (RType | None): Optional RPC request or response data.
     """
 
-    data: Any = None
-    rpc: Optional[Union[RPCRequest, RPCResponse]] = None
-
     source: PacketSource
+
+    data: Any = None
+    rpc: Optional[RType] = None
     channel: Optional[str] = None
-    timestamp: float = Field(default_factory=time.time)
+
+    timestamp: float = field(default_factory=time.time)
     correlation_id: Optional[str] = None
 
-    @model_validator(mode="after")
-    def validate(self) -> Self:
-        if self.rpc is None and self.data is None:
-            raise ValueError("Data must be provided.") from None
 
-        if self.channel == PacketSource.CHANNEL and self.channel is None:
-            raise ValueError("Channel must be provided.")
+# r = Packet[RPCResponse](source=PacketSource.RPC)
 
-        return self
+
+def validate_packet(packet: Packet) -> Packet:
+    if packet.rpc is None and packet.data is None:
+        raise PacketValidationError("Data must be provided.") from None
+
+    if packet.source == PacketSource.CHANNEL and packet.channel is None:
+        raise PacketValidationError("Channel must be provided for CHANNEL packets.")
+
+    if packet.channel is not None and packet.source != PacketSource.CHANNEL:
+        raise PacketValidationError("Channel cannot be provided for non-CHANNEL packets.")
+
+    return packet
 
 
 def deserialize(data: bytes, base_model: Type[T] = cast(Type[T], Packet)) -> T:
@@ -73,14 +84,15 @@ def deserialize(data: bytes, base_model: Type[T] = cast(Type[T], Packet)) -> T:
         A BaseModel object of the specified type if deserialization and
         validation are successful.
     """
-    if not isinstance(data, bytes):
-        raise TypeError("Data to be deserialize must be a bytes, not %s" % type(data))
+    packet = msgspec.msgpack.decode(data, type=base_model)
 
-    decoded_data = msgpack.unpackb(data, raw=False)
-    return base_model.model_validate(decoded_data)
+    if isinstance(packet, Packet):
+        validate_packet(packet)
+
+    return packet
 
 
-def serialize(base_model: BaseModel) -> bytes:
+def serialize(base_model: msgspec.Struct) -> bytes:
     """Serializes a BaseModel object into a bytes.
 
     Encode the given BaseModel object into a byte array using Msgpack.
@@ -92,13 +104,7 @@ def serialize(base_model: BaseModel) -> bytes:
         A byte array of the serialized BaseModel object.
     """
 
-    encoded_data = cast(
-        bytes,
-        msgpack.packb(
-            base_model.model_dump(mode="python"),
-            use_bin_type=True,
-            default=lambda obj: obj.value if isinstance(obj, Enum) else obj,
-        ),
-    )
+    if isinstance(base_model, Packet):
+        validate_packet(base_model)
 
-    return encoded_data
+    return msgspec.msgpack.encode(base_model)
