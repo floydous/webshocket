@@ -3,22 +3,26 @@ import collections
 import inspect
 
 from collections.abc import Awaitable
-from typing import TYPE_CHECKING, Optional, Set, Dict, Iterable, Union, cast
+from typing import TYPE_CHECKING, Optional, Set, Dict, Iterable, Union, TypeVar, Generic, cast
 
 from .packets import Packet, PacketSource
-from .typing import RPC_Function
+from .typing import RPC_Function, RPCMethod, SessionState
+from .exceptions import PacketError
 
 if TYPE_CHECKING:
     from .connection import ClientConnection
 
 
-class WebSocketHandler:
+TState = TypeVar("TState", bound=SessionState)
+
+
+class WebSocketHandler(Generic[TState]):
     """Defines the interface for handling server-side WebSocket logic."""
 
     def __init__(self) -> None:
         self.clients: Set["ClientConnection"] = set()
         self.channels: Dict[str, Set["ClientConnection"]] = collections.defaultdict(set)
-        self._rpc_methods: Dict[str, RPC_Function] = dict()
+        self._rpc_methods: Dict[str, RPCMethod] = dict()
 
         for name, func in inspect.getmembers(self, predicate=callable):
             rpc_alias_name = getattr(func, "_rpc_alias_name", name)
@@ -26,7 +30,12 @@ class WebSocketHandler:
             if not (callable(func) and getattr(func, "_is_rpc_method", False)):
                 continue
 
-            self._rpc_methods[rpc_alias_name] = cast(RPC_Function, func)
+            # self._rpc_methods[rpc_alias_name] = cast(RPC_Function, func)
+            self._rpc_methods[rpc_alias_name] = RPCMethod(
+                func=cast(RPC_Function, func),
+                rate_limit=getattr(func, "_rate_limit", None),
+                restricted=getattr(func, "_restricted", None),
+            )
 
     def register_rpc_method(self, func: RPC_Function, alias_name: Optional[str] = None) -> None:
         """Registers an RPC method with the handler."""
@@ -34,20 +43,24 @@ class WebSocketHandler:
         if not getattr(func, "_is_rpc_method", False):
             raise ValueError("Function is a non-RPC method.")
 
-        rpc_alias_name = alias_name or getattr(func, "_rpc_alias_name", None)
+        rpc_alias_name = alias_name or getattr(func, "_rpc_alias_name", None) or func.__name__
 
         if rpc_alias_name:
-            self._rpc_methods[rpc_alias_name] = func
+            self._rpc_methods[rpc_alias_name] = RPCMethod(
+                func=func,
+                rate_limit=getattr(func, "_rate_limit", None),
+                restricted=getattr(func, "_restricted", None),
+            )
 
-    async def on_connect(self, websocket: "ClientConnection"):
+    async def on_connect(self, connection: "ClientConnection[TState]"):
         """(Optional) Called when a new client connects."""
         pass
 
-    async def on_disconnect(self, websocket: "ClientConnection"):
+    async def on_disconnect(self, connection: "ClientConnection[TState]"):
         """(Optional) Called when a client disconnects."""
         pass
 
-    async def on_receive(self, connection: "ClientConnection", packet: Packet):
+    async def on_receive(self, connection: "ClientConnection[TState]", packet: Packet):
         """(Optional) Called when a client sends a packet."""
         pass
 
@@ -74,7 +87,7 @@ class WebSocketHandler:
             data = Packet(data=data, source=PacketSource.BROADCAST, **kwargs)
 
         if data.source != PacketSource.BROADCAST:
-            raise ValueError("Cannot broadcast non-broadcast packet.")
+            raise PacketError("Cannot broadcast non-broadcast packet.")
 
         tasks: list[Awaitable[None]] = [client.send(data) for client in self.clients if client not in exclude_set]
 
@@ -102,10 +115,10 @@ class WebSocketHandler:
         channels = {channel} if isinstance(channel, str) else set(channel)
 
         if isinstance(data, Packet) and data.source != PacketSource.CHANNEL:
-            raise ValueError("Cannot publish non-channel packet.")
+            raise PacketError("Cannot publish non-channel packet.")
 
         for channel in channels:
-            packet = Packet(data=data, source=PacketSource.CHANNEL, channel=channel) if isinstance(data, str) else data
+            packet = Packet(data=data, source=PacketSource.CHANNEL, channel=channel) if not isinstance(data, Packet) else data
             tasks: list[Awaitable[None]] = [client.send(packet) for client in self.channels[channel] if client not in exclude_set]
 
             if tasks:
