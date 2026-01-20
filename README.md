@@ -10,92 +10,108 @@
 
 # Webshocket
 
-Webshocket is a Python library that handles the boilerplate of building WebSocket applications. It provides a high-level, object-oriented layer on top of the excellent websockets library, designed to let you focus on your application's features instead of its plumbing.
+Webshocket is a lightweight Python framework for building WebSocket RPC applications with per-client state and channel routing, built on the [WebSocket](https://github.com/python-websockets/websockets) library.
 
-## Why Use Webshocket?
+# Usage
 
-Building real-time applications involves more than just sending messages. You have to manage connection lifecycles, handle state for thousands of clients, and structure your code to be maintainable. Webshocket is designed to solve these problems for you.
-
-- **A Cleaner API:** Instead of writing raw protocol handlers, you work with clean, powerful objects like WebSocketServer and ClientConnection
-
-- **Effortless State Management:** Need to remember a user's name or authentication status? Just assign it directly: `connection.username = "alice"`. No more managing complicated external dictionaries to track client state.
-
-- **Built-in Best Practices:** async with provides safe, automatic resource management for both servers and clients, while the handler pattern promotes a clean separation between network and application logic.
-
-# Quick Start
-
-Get a simple echo server running in seconds.
-
-### 1. Server Code (`server.py`)
-
+### Calling RPC Methods
 ```python
-import asyncio
-import webshocket
+class Handler(webshocket.WebSocketHandler):
+    @webshocket.rpc_method(alias_name="add")
+    async def add(self, _: webshocket.ClientConnection, a: int, b: int):
+        return a + b
 
-# Define your application logic by inheriting from WebSocketHandler
-class EchoHandler(webshocket.WebSocketHandler):
-    async def on_connect(self, connection: webshocket.ClientConnection):
-        print(f"New connection: {connection.remote_address}")
-        # The smart send method automatically wraps raw strings into a Packet
-        await connection.send("Welcome to the Echo Server!")
 
-    async def on_receive(self, connection: webshocket.ClientConnection, packet: webshocket.Packet):
-        # The server automatically parses data into a Packet object
-        print(f"Received '{packet.data}' from {connection.remote_address}")
-        await connection.send(f"Echo: {packet.data}")
-
-# Start the server
 async def main():
-    server = webshocket.WebSocketServer("localhost", 8765, handler_class=EchoHandler)
+    server = webshocket.WebSocketServer("127.0.0.1", 5000, clientHandler=Handler)
+    await server.start()
 
-    print("Starting server...")
-    async with server:
-        await server.serve_forever()
+    async with webshocket.WebSocketClient("ws://127.0.0.1:5000") as client:
+        response_packet = await client.send_rpc("add", 1, 2)
+```
+```python
+        print(response_packet.data)  # 3
+```
+```python
+    await server.close()
+
 
 if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-### 2. Client Code (client.py)
-
+### Managing Client State
 ```python
-import asyncio
-import webshocket
+class Handler(webshocket.WebSocketHandler):
+    @webshocket.rpc_method()
+    async def register(self, connection: webshocket.ClientConnection, favorite_color: str) -> None:
+        connection.favorite_color = favorite_color
+
+    @webshocket.rpc_method(alias_name="my-favorite-color")
+    async def tell(self, connection: webshocket.ClientConnection) -> str:
+        return connection.session_state["favorite_color"]
+
 
 async def main():
-    uri = "ws://localhost:8765"
+    server = webshocket.WebSocketServer("127.0.0.1", 5000, clientHandler=Handler)
+    await server.start()
+
+    async with webshocket.WebSocketClient("ws://127.0.0.1:5000") as client:
+        await client.send_rpc("register", "blue")
+
+        response = await client.send_rpc("my-favorite-color")
+```
+```python
+        print(response.data)  # blue
+```
+```python
+    await server.close()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+### Working With Channels
+```python
+class Handler(webshocket.WebSocketHandler):
+    @webshocket.rpc_method()  # Alias name automatically set to the method name if `alias_name` is not provided
+    async def subscribe_to(self, connection: webshocket.ClientConnection, channel: str):
+        connection.subscribe(channel)
+
+
+async def main():
+    server = webshocket.WebSocketServer("127.0.0.1", 5000, clientHandler=Handler)
+    await server.start()
+
+    SportsSubscriber = await webshocket.WebSocketClient("ws://127.0.0.1:5000").connect()
+    NewsSubscriber = await webshocket.WebSocketClient("ws://127.0.0.1:5000").connect()
 
     try:
-        async with webshocket.WebSocketClient(uri) as client:
-            print("Connected to server.")
+        await SportsSubscriber.send_rpc("subscribe_to", "sports")
+        await NewsSubscriber.send_rpc("subscribe_to", "news")
+        await asyncio.sleep(1)
 
-            # The recv() method automatically parses incoming messages into Packets
-            welcome_packet = await client.recv()
-            print(f"Server says: '{welcome_packet.data}'")
+        await server.publish("sports", "Sports News!")
+        await server.publish("news", "News update!")
+        await asyncio.sleep(1)
 
-            # Send a message and wait for the echo
-            await client.send("Hello from Denpasar!")
-            echo_packet = await client.recv()
-            print(f"Server echoed: '{echo_packet.data}'")
+```
+```python
+        print((await SportsSubscriber.recv()).data)  # Sports News!
+        print((await NewsSubscriber.recv()).data)  # News update!
+```
+```python
+    finally:
+        await SportsSubscriber.close()
+        await NewsSubscriber.close()
 
-    except ConnectionRefusedError:
-        print("Connection failed. Is the server running?")
+    await server.close()
+
 
 if __name__ == "__main__":
     asyncio.run(main())
 ```
-
-# Advanced Features Made Simple
-
-Webshocket is more than just a simple wrapper. It provides a framework for building sophisticated real-time applications.
-
-- **Channels and Broadcasting:** Move beyond simple echo servers. The publish() and broadcast() methods provide a high-level API for building multi-user chat rooms and notification systems, handling the complexity of concurrent message delivery for you.
-
-- **Secure and Resilient Connections:** Easily enable secure wss:// with TLS certificates. The included WebSocketClient can be configured to automatically survive network drops with a production-ready reconnection strategy.
-
-- **Structured and Validated Data:** Enforce a strict data protocol by defining your message types with Pydantic. The library will automatically validate incoming packets, rejecting malformed or malicious data before your code ever sees it.
-
-- **Remote Procedure Calls (RPC):** Call server-side functions directly from your client! Define methods on your `WebSocketHandler` with the `@rpc_method` decorator, and Webshocket handles the magic of remote execution, making client-server interactions feel like local function calls.
 
 # Contributing
 
