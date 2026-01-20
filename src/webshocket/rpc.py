@@ -1,20 +1,16 @@
 import asyncio
-import time
 
 from functools import wraps
 from typing import Callable, Any, Optional, TYPE_CHECKING
-from collections import defaultdict
 
-from .enum import TimeUnit
+from .typing import RPC_Predicate, RateLimitConfig
+from .utils import parse_duration
 
 if TYPE_CHECKING:
     from .handler import WebSocketHandler
-    from .connection import ClientConnection
 
 
-def rpc_method(
-    alias_name: Optional[str] = None, requires: Optional[Callable[["ClientConnection"], bool]] = None
-) -> Callable[..., Any]:
+def rpc_method(alias_name: Optional[str] = None, requires: Optional[RPC_Predicate] = None) -> Callable[..., Any]:
     """
     Decorator to mark a method in a WebSocketHandler as an RPC-callable method.
     When a method is decorated with @rpc_method, it becomes callable by clients
@@ -25,15 +21,16 @@ def rpc_method(
 
     Usage:
         class MyHandler(WebSocketHandler):
-            @rpc_method(alias_name="my_rpc_function", requires=lambda connection: connection.is_admin)
+            @rpc_method(alias_name="my_rpc_function", requires=IsEqual("is_admin", True))
             async def my_rpc(self, connection: ClientConnection, arg1: str, arg2: int):
                 # ... implementation ...
                 return True
 
     Args:
         alias_name (Optional[str]): An alias name for the RPC method.
-        requires (Optional[Callable[[ClientConnection], bool]]): A function that returns
+        requires (Optional[RPC_Predicate]): A function that returns
             True if the client connection is allowed to call the method, False otherwise.
+            Can use helpers like Has(), Is(), Any(), All().
 
     Returns:
         Callable: The wrapped function.
@@ -56,10 +53,10 @@ def rpc_method(
 
 
 def rate_limit(
-    limit: int,
-    unit: TimeUnit,
     *,
-    key: Callable[["ClientConnection"], Any] = lambda connection: getattr(connection, "uid"),
+    limit: int,
+    period: str = "1s",
+    disconnect_on_limit_exceeded: bool = False,
 ) -> Callable[..., Any]:
     """
     Decorator to mark a method in a WebSocketHandler as a rate-limited method.
@@ -68,15 +65,14 @@ def rate_limit(
 
     Usage:
         class MyHandler(WebSocketHandler):
-            @rate_limit(limit=5, unit="MINUTE", key=lambda connection: connection.client_id)
+            @rate_limit(limit=5, period="1m") # 5 calls per minute
             async def on_receive(self, connection: ClientConnection):
                 ...
 
     Args:
         limit (int): The maximum number of times the method can be called within the specified time unit.
-        unit (TimeUnit): The time unit for the rate limit.
-        key (Callable[[ClientConnection]]): A function that takes a ClientConnection object as input and returns
-                                           a unique key for the rate limit.
+        period (str): The time unit for the rate limit.
+        disconnect_on_limit_exceeded (bool): Whether to disconnect the client when the rate limit is exceeded.
 
     Returns:
         Callable: The wrapped function.
@@ -90,17 +86,16 @@ def rate_limit(
         async def wrapper(self: "WebSocketHandler", *args: Any, **kwargs: Any) -> Any:
             return await func(self, *args, **kwargs)
 
-        setattr(wrapper, "_rate_limit", (limit, unit, key))
         setattr(
             wrapper,
-            "_list_client",
-            defaultdict(
-                lambda: {
-                    "count": 0,
-                    "last_called": time.time(),
-                }
+            "_rate_limit",
+            RateLimitConfig(
+                limit=limit,
+                period=parse_duration(period),
+                disconnect_on_limit_exceeded=disconnect_on_limit_exceeded,
             ),
         )
+
         return wrapper
 
     return decorator
