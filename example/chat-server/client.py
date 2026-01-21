@@ -24,27 +24,7 @@ async def main() -> None:
     try:
         await websocketClient.connect()
         Terminal.console_log("Connected to WebSocket. Please enter your username:")
-
-        while True:
-            username = await asyncio.to_thread(Terminal.input, "Username: ")
-
-            if not username:
-                Terminal.console_log("Username cannot be empty. Disconnecting.", level="ERROR")
-                await websocketClient.close()
-                return
-
-            response = await websocketClient.send_rpc("register_user", username)
-
-            if response.data is True:
-                Terminal.console_log(f"Connected as {username}.", level="INFO")
-                break
-
-            else:
-                Terminal.logs.clear()
-                Terminal.console_log(
-                    "Username already taken. Please choose another.",
-                    level="ERROR",
-                )
+        await regist_username(websocketClient)
 
         while websocketClient.state == websocketClient.state.CONNECTED:
             user_input = await asyncio.to_thread(Terminal.input, "Enter message or command (e.g., /help): ")
@@ -81,6 +61,29 @@ async def main() -> None:
         if websocketClient.state != websocketClient.state.CLOSED:
             await websocketClient.close()
             Terminal.console_log("Client disconnected.", level="INFO")
+
+
+async def regist_username(websocketClient: webshocket.WebSocketClient):
+    while True:
+        username = await asyncio.to_thread(Terminal.input, "Username: ")
+
+        if not username:
+            Terminal.console_log("Username cannot be empty. Disconnecting.", level="ERROR")
+            await websocketClient.close()
+            return
+
+        response = await websocketClient.send_rpc("register_user", username)
+
+        if response.data is True:
+            Terminal.console_log(f"Connected as {username}.", level="INFO")
+            break
+
+        else:
+            Terminal.logs.clear()
+            Terminal.console_log(
+                "Username already taken. Please choose another.",
+                level="ERROR",
+            )
 
 
 if __name__ == "__main__":
