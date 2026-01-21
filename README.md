@@ -10,107 +10,87 @@
 
 # Webshocket
 
-Webshocket is a lightweight Python framework for building WebSocket RPC applications with per-client state and channel routing, built on the [WebSocket](https://github.com/python-websockets/websockets) library.
+Webshocket is a lightweight Python framework designed to handle the complexity of WebSocket-based RPC applications. It provides a high-level API for remote procedure calls, per-client session management, and efficient message broadcasting.
 
-# Usage
+# Why Webshocket?
 
-### Calling RPC Methods
+- **Built for Tunnels**: Since Webshocket runs over WebSockets (HTTP), it works perfectly with free tunnel services like Cloudflare Tunnels (Argo) or Localtunnel. Avoid expensive TCP-only tunnels like ngrok.
+- **Focus on Your Logic**: Perfect for AI and IoT projects. Just handle the packets and session state while we handle the network heartbeats and protocol validation.
+- **Good Performance**: Handles **17,000+ RPC calls/sec** on a single connection with **50MB/s+** throughput.
+- **Elegant State Management**: No more global dicts. Assign data directly to the `connection` object and it persists for the session.
+
+# Unique Features at a Glance
+
+Webshocket simplifies complex networking logic into simple, object-oriented patterns.
+
+### 1. Powerful RPC with Access Control
+
+Define server methods effortlessly and protect them with custom rules (predicates).
+
 ```python
-class Handler(webshocket.WebSocketHandler):
+class MyHandler(webshocket.WebSocketHandler):
     @webshocket.rpc_method(alias_name="add")
     async def add(self, _: webshocket.ClientConnection, a: int, b: int):
         return a + b
 
-
-async def main():
-    server = webshocket.WebSocketServer("127.0.0.1", 5000, clientHandler=Handler)
-    await server.start()
-
-    async with webshocket.WebSocketClient("ws://127.0.0.1:5000") as client:
-        response_packet = await client.send_rpc("add", 1, 2)
-```
-```python
-        print(response_packet.data)  # 3
-```
-```python
-    await server.close()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    # Unique: Use built-in predicates for clean access control
+    @webshocket.rpc_method(requires=webshocket.Is("is_admin"))
+    async def secret_function(self, conn: webshocket.ClientConnection):
+        return "Sensitive Data"
 ```
 
-### Managing Client State
+### 2. Effortless Session State
+
+No more look-up tables. Assign data directly to the client connection; Webshocket handles the persistence for you.
+
 ```python
-class Handler(webshocket.WebSocketHandler):
     @webshocket.rpc_method()
-    async def register(self, connection: webshocket.ClientConnection, favorite_color: str) -> None:
-        connection.favorite_color = favorite_color
+    async def login(self, connection: webshocket.ClientConnection, user_id: str):
+        # Direct attribute assignment persists for the session
+        connection.user_id = user_id
+        connection.is_admin = True
 
-    @webshocket.rpc_method(alias_name="my-favorite-color")
-    async def tell(self, connection: webshocket.ClientConnection) -> str:
-        return connection.session_state["favorite_color"]
+        # Subscribe to updates immediately
+        connection.subscribe("broadcast-channel")
+```
 
+### 3. Integrated Tunnelling & Deployment
 
+Designed to run perfectly behind free HTTP tunnels, making it the easiest way to expose a local AI or IoT project to the world.
+
+```python
 async def main():
-    server = webshocket.WebSocketServer("127.0.0.1", 5000, clientHandler=Handler)
-    await server.start()
-
-    async with webshocket.WebSocketClient("ws://127.0.0.1:5000") as client:
-        await client.send_rpc("register", "blue")
-
-        response = await client.send_rpc("my-favorite-color")
-```
-```python
-        print(response.data)  # blue
-```
-```python
-    await server.close()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    server = webshocket.WebSocketServer("0.0.0.0", 5000, clientHandler=MyHandler)
+    async with server:
+        await server.serve_forever()
 ```
 
-### Working With Channels
-```python
-class Handler(webshocket.WebSocketHandler):
-    @webshocket.rpc_method()  # Alias name automatically set to the method name if `alias_name` is not provided
-    async def subscribe_to(self, connection: webshocket.ClientConnection, channel: str):
-        connection.subscribe(channel)
+### 4. Cross-Language Compatibility
 
+Webshocket is designed to be language-agnostic. While the Python client is optimized with MessagePack, the server natively understands **standard JSON packets**. This means you can build a client in **JavaScript**, Java, or C# using nothing but the standard library.
 
-async def main():
-    server = webshocket.WebSocketServer("127.0.0.1", 5000, clientHandler=Handler)
-    await server.start()
+```javascript
+// Example: Standard Browser JavaScript Client
+const socket = new WebSocket("ws://your-tunnel.url");
 
-    SportsSubscriber = await webshocket.WebSocketClient("ws://127.0.0.1:5000").connect()
-    NewsSubscriber = await webshocket.WebSocketClient("ws://127.0.0.1:5000").connect()
+socket.onopen = () => {
+	const rpcRequest = {
+		rpc: {
+			type: "request",
+			method: "add",
+			args: [10, 20],
+			kwargs: {},
+		},
+		source: 5,
+	};
 
-    try:
-        await SportsSubscriber.send_rpc("subscribe_to", "sports")
-        await NewsSubscriber.send_rpc("subscribe_to", "news")
-        await asyncio.sleep(1)
+	socket.send(JSON.stringify(rpcRequest));
+};
 
-        await server.publish("sports", "Sports News!")
-        await server.publish("news", "News update!")
-        await asyncio.sleep(1)
-
-```
-```python
-        print((await SportsSubscriber.recv()).data)  # Sports News!
-        print((await NewsSubscriber.recv()).data)  # News update!
-```
-```python
-    finally:
-        await SportsSubscriber.close()
-        await NewsSubscriber.close()
-
-    await server.close()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+socket.onmessage = async (event) => {
+	const packet = JSON.parse(await event.data.text());
+	console.log("Result:", packet.rpc.response); // 30
+};
 ```
 
 # Contributing
