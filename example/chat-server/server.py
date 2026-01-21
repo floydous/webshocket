@@ -1,21 +1,23 @@
-from webshocket.packets import Packet
 import asyncio
 import webshocket
 import logging
+
+from webshocket.packets import Packet
+from webshocket.predicate import Has
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 
 class clientHandler(webshocket.WebSocketHandler):
-    async def on_disconnect(self, websocket: webshocket.ClientConnection):
-        if websocket.session_state.get("username"):
-            logging.info(f"User '{websocket.session_state['username']}' has left the chat.")
+    async def on_disconnect(self, connection: webshocket.ClientConnection):
+        if connection.session_state.get("username"):
+            logging.info(f"User '{connection.session_state['username']}' has left the chat.")
 
             await self.broadcast(
-                f"User '{websocket.session_state['username']}' has left the chat.",
+                f"User '{connection.session_state['username']}' has left the chat.",
                 exclude=tuple(
-                    conn for conn in self.clients if websocket.session_state.get("username") is None
+                    conn for conn in self.clients if connection.session_state.get("username") is None
                 ),
             )
 
@@ -28,10 +30,7 @@ class clientHandler(webshocket.WebSocketHandler):
         message: str = f"{connection.username}: {packet.data}"
         await self.publish(channel=connection.subscribed_channel, data=message)
 
-    @webshocket.rpc_method(
-        alias_name="trigger_command",
-        requires=lambda connection: getattr(connection, "username") is not None,
-    )
+    @webshocket.rpc_method(alias_name="trigger_command", requires=Has("username"))
     async def trigger_command(self, connection: webshocket.ClientConnection, command_name: str, *args):
         logging.info(f"Received command from {connection.username}: {command_name} {args}")
 
