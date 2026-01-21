@@ -1,5 +1,4 @@
 import time
-import uuid
 import msgspec
 
 from typing import Generic, Optional, Any, TypeVar, Type, Sequence, cast
@@ -7,6 +6,7 @@ from msgspec import field
 
 from .enum import PacketSource, RPCErrorCode
 from .exceptions import PacketValidationError
+from .utils import generate_uuid
 
 T = TypeVar("T", bound=msgspec.Struct)
 
@@ -17,7 +17,7 @@ class RPCRequest(msgspec.Struct, tag="request"):
     method: str
     args: Sequence[Any] = tuple()
     kwargs: dict[str, Any] = dict()
-    call_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    call_id: str = field(default_factory=generate_uuid)
 
 
 class RPCResponse(msgspec.Struct, tag="response"):
