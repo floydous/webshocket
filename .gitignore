@@ -17,3 +17,4 @@ uv.lock
 pyproject.toml.backup
 *.ini
 GEMINI.md
+/tests/benchmarks
