@@ -1,10 +1,14 @@
-import websockets
+import asyncio
+import ssl
+from picows import WSTransport
+
 from typing import Optional, Iterable, Union, Any, Callable, Awaitable, Self, TypeVar, Generic
 from .handler import WebSocketHandler, DefaultWebSocketHandler
-from .typing import CertificatePaths, RPC_Function
+from .typing import RPC_Function
 from .connection import ClientConnection
 from .packets import Packet, RPCResponse
 from .enum import ConnectionState, ServerState
+from ._internal import picows_server
 
 H = TypeVar("H", bound=WebSocketHandler)
 
@@ -21,8 +25,10 @@ class server(Generic[H]):
     handler: H
     host: str
     port: int
-    certificate: Optional[CertificatePaths]
+    ssl_context: Optional[ssl.SSLContext]
     max_connection: Optional[int]
+
+    _packet_queue: asyncio.Queue[Packet]
 
     def __init__(
         self,
@@ -30,9 +36,9 @@ class server(Generic[H]):
         port: int,
         *,
         clientHandler: type[H] = DefaultWebSocketHandler,
-        certificate: Optional[CertificatePaths] = None,
+        ssl_context: Optional[ssl.SSLContext] = None,
         max_connection: Optional[int] = None,
-        packet_qsize: int = 1,
+        packet_qsize: int = 128,
     ) -> None: ...
     def register_rpc_method(self, func: "RPC_Function", alias_name: Optional[str] = None) -> None: ...
     def subscribe(self, client: "ClientConnection", channel: str | Iterable) -> None: ...
@@ -48,7 +54,7 @@ class server(Generic[H]):
         data: Union[str | bytes, Packet],
         exclude: Optional[tuple["ClientConnection", ...]] = None,
     ) -> None: ...
-    async def _handler(self, websocket_protocol: websockets.ServerConnection) -> None: ...
+    async def _handler(self, transport: WSTransport, listener: picows_server.ServerClientListener) -> None: ...
     async def accept(self) -> ClientConnection: ...
     async def start(self, *args, **kwargs) -> Self: ...
     async def serve_forever(self, *args, **kwargs) -> None: ...
@@ -64,7 +70,7 @@ class server(Generic[H]):
 class client:
     state: ConnectionState
     on_receive_callback: Optional[Callable[[Packet], Awaitable[None]]]
-    cert: Optional[str]
+    ssl_context: Optional[ssl.SSLContext]
     uri: str
 
     def __init__(
@@ -72,7 +78,7 @@ class client:
         uri: str,
         on_receive: Optional[Callable[[Packet], Awaitable[None]]] = None,
         *,
-        ca_cert_path: Optional[str] = None,
+        ssl_context: Optional[ssl.SSLContext] = None,
         max_packet_qsize: int = 128,
     ) -> None: ...
     async def _handler(self) -> None: ...
@@ -85,7 +91,7 @@ class client:
         **kwargs,
     ) -> Self: ...
     async def send_rpc(self, method_name: str, *args, raise_on_rate_limit: bool = False, **kwargs) -> Packet[RPCResponse]: ...
-    async def send(self, data: Union[Any, Packet]) -> None: ...
+    def send(self, data: Union[Any, Packet]) -> None: ...
     async def recv(self, timeout: int | None = 30) -> Packet: ...
     async def close(self) -> None: ...
     async def __aenter__(self) -> Self: ...

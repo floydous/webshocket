@@ -1,25 +1,24 @@
 import logging
 import asyncio
-import websockets
 import ssl
-import pathlib
-import random
 import time
 import msgspec
 
 from contextlib import suppress
-from typing import Optional, Callable, Awaitable, Union, Any, Self, Sequence, TypeVar, Generic, cast
+from typing import Optional, Callable, Awaitable, Union, Any, Self, TypeVar, Generic, cast
+from picows import WSCloseCode, WSTransport
+from random import uniform
+
+from ._internal import picows_server, picows_client
 
 from .packets import RPCResponse
 from .handler import WebSocketHandler, DefaultWebSocketHandler
 from .typing import (
-    CertificatePaths,
     RPCMethod,
     RateLimitConfig,
     RPC_Predicate,
-    DEFAULT_WEBSHOCKET_SUBPROTOCOL,
 )
-from .enum import ConnectionState, PacketSource, ServerState, RPCErrorCode
+from .enum import ConnectionState, PacketSource, ServerState, RPCErrorCode, ClientType
 from .packets import Packet, RPCRequest, serialize, deserialize
 from .connection import ClientConnection
 from .exceptions import (
@@ -27,13 +26,11 @@ from .exceptions import (
     ConnectionClosedError,
     WebSocketError,
     RPCError,
-    InvalidURIError,
     RPCTimeoutError,
     ReceiveTimeoutError,
     RateLimitError,
 )
 
-import websockets.asyncio.server
 
 H = TypeVar("H", bound=WebSocketHandler)
 
@@ -46,66 +43,71 @@ class server(Generic[H]):
     It supports both secure (WSS) and unsecure (WS) connections.
     """
 
+    __slots__ = (
+        "logger",
+        "state",
+        "host",
+        "port",
+        "handler",
+        "max_connection",
+        "ssl_context",
+        "_packet_qsize",
+        "_server",
+        "_client_bucket",
+        "_rpc_task_limit",
+    )
+
     def __init__(
         self,
         host: str,
         port: int,
         *,
         clientHandler: type[H] = DefaultWebSocketHandler,
-        certificate: Optional[CertificatePaths] = None,
+        ssl_context: ssl.SSLContext | None = None,
         max_connection: Optional[int] = None,
-        packet_qsize: int = 1,
+        packet_qsize: int = 512,
+        rpc_task_limit: int = 1024,
     ) -> None:
         """Initializes a new WebSocket server instance.
 
         Args:
             host (str): The hostname or IP address to bind the server to.
             port (int): The port number to listen on.
-            max_connection (int | None): The maximum number of concurrent connections. Unlimited if None
-            websocket_handler (type[WebSocketHandler]): The class type of the handler
-                                                        to manage WebSocket events (connect, receive, disconnect).
-            certificate (Optional[CertificatePaths]): A dictionary containing paths to
-                                                      the SSL certificate and key files for WSS connections.
-                                                      Defaults to None for WS connections.
+            clientHandler (type[WebSocketHandler]): The class type of the handler
+                                                    to manage WebSocket events. Defaults to DefaultWebSocketHandler.
+            ssl_context (ssl.SSLContext | None): Optional SSL context for WSS connections.
+            max_connection (int | None): The maximum number of concurrent connections. Unlimited if None.
+            packet_qsize (int): The size of the packet queue for each client. Defaults to 512.
+            rpc_task_limit (int): The maximum number of concurrent RPC tasks. Defaults to 1024.
         """
         self.logger = logging.getLogger("webshocket.server")
         self.state: ServerState = ServerState.CLOSED
         self.host, self.port = host, port
         self.handler = clientHandler()
-        self.certificate = certificate
         self.max_connection = max_connection
+        self.ssl_context = ssl_context
 
         self._packet_qsize = packet_qsize
-        self._server: websockets.Server | None = None
-        self._context: ssl.SSLContext | None = None
+        self._server: picows_server.PicowsServer | None = None
         self._client_bucket: asyncio.Queue[ClientConnection] = asyncio.Queue()
-
-        if self.certificate is not None:
-            self._context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-            cert_path = self.certificate["cert_path"]
-            key_path = self.certificate["key_path"]
-
-            self._context.load_cert_chain(
-                pathlib.Path(cert_path).resolve(),
-                pathlib.Path(key_path).resolve(),
-            )
+        self._rpc_task_limit = asyncio.Semaphore(rpc_task_limit)
 
     @staticmethod
-    def _to_packet(data: str | bytes, subprotocol: websockets.Subprotocol | None) -> Packet:
+    def _to_packet(data: str | bytes, client_type: ClientType) -> Packet:
         """Converts raw data or json-model data into structured Packet-type data"""
 
-        packet = Packet(data=data, source=PacketSource.UNKNOWN, channel=None)
-
-        with suppress(msgspec.ValidationError, msgspec.DecodeError, TypeError):
-            if subprotocol is not None:
+        try:
+            if client_type == ClientType.FRAMEWORK:
                 if not isinstance(data, bytes):
                     raise TypeError("Data to be deserialize must be a bytes, not %s" % type(data))
 
-                if DEFAULT_WEBSHOCKET_SUBPROTOCOL in subprotocol:
-                    packet = deserialize(cast(bytes, data), Packet)
+                packet = deserialize(data, Packet)
 
-            else:
+            elif client_type == ClientType.GENERIC:
                 packet = msgspec.json.decode(data, type=Packet)
+
+        except (msgspec.ValidationError, TypeError, msgspec.DecodeError):
+            packet = Packet(data=data, source=PacketSource.UNKNOWN)
 
         return packet
 
@@ -134,7 +136,7 @@ class server(Generic[H]):
             rpc_function: RPCMethod | None = self.handler._rpc_methods.get(method_name, None)
 
             if rpc_function is None:
-                await connection._send_rpc_response(
+                connection._send_rpc_response(
                     RPCResponse(
                         call_id=call_id,
                         response=f"RPC method '{method_name}' not found.",
@@ -147,14 +149,14 @@ class server(Generic[H]):
                 access_error = self._check_restricted_access(connection, restriction, call_id, method_name)
 
                 if access_error:
-                    await connection._send_rpc_response(access_error)
+                    connection._send_rpc_response(access_error)
                     return
 
             if rate_limit := rpc_function.rate_limit:
-                limit_error = await self._check_rate_limit(connection, rpc_function.func, rate_limit, call_id, method_name)
+                limit_error = self._check_rate_limit(connection, rpc_function.func, rate_limit, call_id, method_name)
 
                 if limit_error:
-                    await connection._send_rpc_response(limit_error)
+                    connection._send_rpc_response(limit_error)
                     return
 
             result = await self._execute_rpc_method(
@@ -185,7 +187,7 @@ class server(Generic[H]):
             )
 
             if connection.connection_state == ConnectionState.CONNECTED:
-                await connection._send_rpc_response(rpc_response)
+                connection._send_rpc_response(rpc_response)
 
     def _check_restricted_access(
         self,
@@ -204,7 +206,7 @@ class server(Generic[H]):
 
         return None
 
-    async def _check_rate_limit(
+    def _check_rate_limit(
         self,
         connection: "ClientConnection",
         rpc_func: Callable,
@@ -228,7 +230,7 @@ class server(Generic[H]):
 
         if connection.session_state[storageKey]["count"] >= rate_limit.limit:
             if rate_limit.disconnect_on_limit_exceeded:
-                await connection.close(code=1008, reason="Rate limit exceeded")
+                connection.close(WSCloseCode.TRY_AGAIN_LATER, "Rate limit exceeded")
 
             return RPCResponse(
                 call_id=call_id,
@@ -252,7 +254,7 @@ class server(Generic[H]):
             **cast(dict[str, Any], rpc_request.kwargs),
         )
 
-    async def _handler(self, websocket_protocol: websockets.ServerConnection) -> None:
+    async def _handler(self, transport: WSTransport, listener: picows_server.ServerClientListener) -> None:
         """Internal handler for new WebSocket connections.
 
         This method is called by the websockets library for each new connection.
@@ -260,54 +262,57 @@ class server(Generic[H]):
         and manages the message reception loop and disconnection.
 
         Args:
-            websocket_protocol (websockets.ServerConnection): The underlying
+            transport (websockets.ServerConnection): The underlying
                                                               WebSocket protocol object for the connection.
         """
 
         if isinstance(self.max_connection, int) and len(self.handler.clients) >= self.max_connection:
-            await websocket_protocol.close(
-                code=websockets.frames.CloseCode.TRY_AGAIN_LATER,
-                reason="Server is currently at maximum capacity. Please try again later.",
+            transport.send_close(
+                WSCloseCode.TRY_AGAIN_LATER,
+                b"Server is currently at maximum capacity. Please try again later.",
             )
+            transport.disconnect()
             return
 
-        _remote_address = ":".join(tuple(map(str, websocket_protocol.remote_address)))
+        uses_default_handler = isinstance(self.handler, DefaultWebSocketHandler)
+        has_subprotocol = transport.response.headers.get("Sec-WebSocket-Protocol", "")
 
         _websocket: ClientConnection = ClientConnection(
-            websocket_protocol=websocket_protocol,
+            websocket_protocol=transport,
             packet_qsize=self._packet_qsize,
             handler=self.handler,
+            client_type=ClientType.FRAMEWORK if bool(has_subprotocol) else ClientType.GENERIC,
         )
 
-        if isinstance(self.handler, DefaultWebSocketHandler):
+        listener._connection = _websocket
+        listener._ready.set()
+
+        if uses_default_handler:
             await self._client_bucket.put(_websocket)
 
         self.handler.clients.add(_websocket)
         await self.handler.on_connect(_websocket)
-        self.logger.info("New connection from %s", _remote_address)
+        self.logger.info("New connection from %s", _websocket.remote_address)
 
         try:
-            async for data in websocket_protocol:
-                packet = self._to_packet(
-                    subprotocol=websocket_protocol.subprotocol,
-                    data=data,
-                )
+            async for data in _websocket:
+                packet = self._to_packet(data=data, client_type=_websocket.client_type)
 
                 if packet.source == PacketSource.RPC and isinstance(packet.rpc, RPCRequest):
                     asyncio.create_task(self._handle_rpc_request(_websocket, packet.rpc))
                     continue
 
-                if isinstance(self.handler, DefaultWebSocketHandler):
-                    await cast(asyncio.Queue, _websocket._packet_queue).put(packet)
+                if uses_default_handler:
+                    await _websocket._packet_queue.put(packet)
                     continue
 
                 await self.handler.on_receive(_websocket, packet)
 
-        except websockets.exceptions.ConnectionClosedError:  # Expected error when client disconnects.
+        except ConnectionClosedError:  # Expected error when client disconnects.
             pass
 
         finally:
-            self.logger.info("Connection (%s) closed.", _remote_address)
+            self.logger.info("Connection (%s) closed.", _websocket.remote_address)
 
             _websocket.connection_state = ConnectionState.DISCONNECTED
             self.handler.clients.discard(_websocket)
@@ -340,49 +345,49 @@ class server(Generic[H]):
         websocket = await self._client_bucket.get()
         return websocket
 
-    async def start(self, *args, **kwargs) -> Self:
+    async def start(self, **kwargs) -> Self:
         """Starts the WebSocket server.
 
-        If an SSL certificate is provided, the server will run securely (WSS).
         This method initializes the server and makes it ready to accept connections.
 
         Args:
-            *args: Positional arguments to pass to `websockets.asyncio.server.serve`.
-            **kwargs: Keyword arguments to pass to `websockets.asyncio.server.serve`.
+            **kwargs: Keyword arguments to pass to `picows_server.PicowsServer`.
         """
 
-        if self._context is not None:
-            kwargs.update({"ssl": self._context})
-
         if self._server is None:
-            self._server = await websockets.asyncio.server.serve(
-                select_subprotocol=self._select_subprotocol,
-                handler=self._handler,
+            self._server = await picows_server.PicowsServer(
                 host=self.host,
                 port=self.port,
-                *args,
-                **kwargs,
-            )
+                webshocket_server=cast(Any, self),
+                ssl_context=self.ssl_context,
+            ).serve(**kwargs)
 
             self.state = ServerState.SERVING
             self.logger.info("Server started on %s:%s" % (self.host, self.port))
 
         return self
 
-    async def serve_forever(self, *args, **kwargs) -> None:
+    async def serve_forever(self, **kwargs) -> None:
         """Starts the WebSocket server and keeps it running indefinitely.
 
         This method calls `start()` and then waits for the server to be closed.
 
         Args:
-            *args: Positional arguments to pass to `websockets.asyncio.server.serve`.
-            **kwargs: Keyword arguments to pass to `websockets.asyncio.server.serve`.
+            **kwargs: Keyword arguments to pass to `picows_server.PicowsServer`.
         """
-        await self.start(*args, **kwargs)
+        await self.start(**kwargs)
 
-        if self._server is not None:
-            await self._server.wait_closed()
+        if self._server and self._server._picows_server:
+            await self._server._picows_server.wait_closed()
             return
+
+    def _disconnect_clients(self) -> None:
+        """Disconnects all connected clients gracefully.
+
+        This method iterates through all connected clients and closes their connections.
+        """
+        for client in self.handler.clients:
+            client.close()
 
     async def close(self) -> None:
         """Closes the WebSocket server gracefully.
@@ -390,18 +395,14 @@ class server(Generic[H]):
         This method stops the server from accepting new connections and
         waits for all existing connections to close.
         """
-        if self._server is not None:
-            self._server.close()
-            await self._server.wait_closed()
+        if self._server and self._server._picows_server:
+            self._server._picows_server.close()
+            self._disconnect_clients()
+
+            await self._server._picows_server.wait_closed()
 
             self.state = ServerState.CLOSED
             self._server = None
-
-    def _select_subprotocol(self, _, subprotocols: Sequence[websockets.Subprotocol]) -> websockets.Subprotocol | None:
-        if DEFAULT_WEBSHOCKET_SUBPROTOCOL in subprotocols:
-            return cast(websockets.Subprotocol, DEFAULT_WEBSHOCKET_SUBPROTOCOL)
-
-        return None
 
     def __getattr__(self, name: str) -> Any:
         """Called when reading `handler` via `connection._example_data`"""
@@ -414,6 +415,9 @@ class server(Generic[H]):
         """
         Enters the asynchronous context manager, starting the server.
         """
+        if self._server is None:
+            await self.start()
+
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -428,15 +432,35 @@ class client:
     """Represents a WebSocket client for connecting to a WebSocket server.
 
     This class provides functionality to connect, send, receive, and close
-    WebSocket connections, supporting both secure (WSS) and unsecure (WS) connections.
+    WebSocket connections, supporting both secure (WSS) and unsecure (WS) protocols.
+    It manages the underlying connection life-cycle and handles automatic reconnection
+    and message queuing.
+
+    Attributes:
+        uri (str): The URI of the WebSocket server.
+        state (ConnectionState): The current state of the connection.
+        ssl_context (ssl.SSLContext | None): The SSL context used for the connection.
+        cert (str | None): Path to the CA certificate file (deprecated).
     """
+
+    __slots__ = (
+        "_client",
+        "_listener_task",
+        "_packet_queue",
+        "_rpc_pending_request",
+        "state",
+        "logger",
+        "on_receive_callback",
+        "ssl_context",
+        "uri",
+    )
 
     def __init__(
         self,
         uri: str,
         on_receive: Optional[Callable[[Packet], Awaitable[None]]] = None,
         *,
-        ca_cert_path: Optional[str] = None,
+        ssl_context: Optional[ssl.SSLContext] = None,
         max_packet_qsize: int = 128,
     ) -> None:
         """Initializes a new WebSocket client instance.
@@ -444,19 +468,18 @@ class client:
         Args:
             uri (str): The URI of the WebSocket server to connect to (e.g., "ws://localhost:8000").
                        Must include the protocol "ws://" or "wss://".
-
-            on_receive (Optional[Callable[[Any], Awaitable[None]]]): An asynchronous callback
-                                                                      function to be called when a message is received.
-                                                                      Defaults to None.
+            on_receive (Optional[Callable[[Packet], Awaitable[None]]]): An asynchronous callback
+                function to be called when a message is received. Defaults to None.
             ca_cert_path (Optional[str]): Path to a CA certificate file for verifying the server's
-                                          certificate in WSS connections. Defaults to None.
+                certificate in WSS connections. Defaults to None.
+            max_packet_qsize (int): The maximum number of packets to queue before blocking.
+                Defaults to 128.
 
         Raises:
-            ValueError: If the URI does not include a valid WebSocket protocol.
+            InvalidURIError: If the URI does not start with "ws://" or "wss://".
         """
-        self._protocol: Optional[websockets.ClientConnection] = None
+        self._client: Optional[picows_client.client] = None
         self._listener_task: Optional[asyncio.Task] = None
-        self._context: Optional[ssl.SSLContext] = None
 
         self._packet_queue: asyncio.Queue[Packet] = asyncio.Queue(maxsize=max_packet_qsize)
         self._rpc_pending_request: dict[str, asyncio.Future] = {}
@@ -464,17 +487,8 @@ class client:
         self.state = ConnectionState.DISCONNECTED
         self.logger = logging.getLogger("webshocket.client")
         self.on_receive_callback = on_receive
-        self.cert = ca_cert_path
+        self.ssl_context = ssl_context
         self.uri = uri
-
-        if not (uri.startswith("ws://") or uri.startswith("wss://")):
-            raise InvalidURIError("Please include the websocket protocol `wss://` or `ws://` on the address")
-
-        if self.uri.startswith("wss://"):
-            self._context = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH)
-
-            if ca_cert_path:
-                self._context.load_verify_locations(cafile=pathlib.Path(ca_cert_path).resolve())
 
     async def _handler(self) -> None:
         """Internal handler for receiving messages from the WebSocket server.
@@ -486,15 +500,15 @@ class client:
         Raises:
             NotImplementedError: If the client is not connected or `on_receive_callback` is not set.
         """
-        if self._protocol is None:
+        if self._client is None:
             raise ConnectionClosedError("Cannot handle server: not connected")
 
-        if not self._protocol:
+        if not self._client:
             return
 
         try:
-            async for data in self._protocol:
-                packet: Packet = server._to_packet(data, cast(websockets.Subprotocol, DEFAULT_WEBSHOCKET_SUBPROTOCOL))
+            async for data in self._client:
+                packet: Packet = server._to_packet(data, ClientType.FRAMEWORK)
 
                 if isinstance(packet.rpc, RPCResponse) and packet.source == PacketSource.RPC:
                     packet.data = packet.rpc.response
@@ -511,13 +525,13 @@ class client:
 
                 await self._packet_queue.put(packet)
 
-        except websockets.exceptions.ConnectionClosed:
+        except ConnectionClosedError:
             pass
 
         finally:
             self.state = ConnectionState.DISCONNECTED
 
-    async def _connect_once(self, **kwargs) -> None:
+    async def _connect_once(self, *args, **kwargs) -> None:
         """Attempts to establish a single WebSocket connection.
 
         If an existing connection or listener task is active, they will be closed first.
@@ -526,15 +540,19 @@ class client:
         Args:
             **kwargs: Keyword arguments to pass to `websockets.connect`.
         """
-        if (self._listener_task and not self._listener_task.done()) or self._protocol:
+        if (self._listener_task and not self._listener_task.done()) or self._client:
             await self.close()
 
         self.state = ConnectionState.CONNECTING
 
-        self._protocol = await websockets.connect(
+        self._client = picows_client.client(
             uri=self.uri,
-            **kwargs,
+            frame_qsize=512,
+            ssl_context=self.ssl_context,
         )
+
+        await self._client.connect(*args, **kwargs)
+
         self.state = ConnectionState.CONNECTED
         self.logger.info("Successfully connected to %s", self.uri)
         self._listener_task = asyncio.create_task(self._handler())
@@ -559,17 +577,13 @@ class client:
         Raises:
             ConnectionFailedError: If all connection attempts fail when `retry` is True.
         """
-        kwargs.update({"subprotocols": [DEFAULT_WEBSHOCKET_SUBPROTOCOL]})
-
-        if self._context is not None:
-            kwargs.update({"ssl": self._context})
 
         if not retry:
             await self._connect_once(**kwargs)
             return self
 
         for attempt in range(max_retry_attempt):
-            delay = retry_interval * (2**attempt) + random.uniform(0, 1)
+            delay = retry_interval * (2**attempt) + uniform(0, 1)
 
             try:
                 await self._connect_once(**kwargs)
@@ -581,7 +595,7 @@ class client:
         await self.close()
         raise ConnectionFailedError("All connection attempts failed after multiple retries.")
 
-    async def send(self, data: Union[Any, Packet]) -> None:
+    def send(self, data: Union[Any, Packet]) -> None:
         """Sends data over the WebSocket connection.
 
         Args:
@@ -592,7 +606,7 @@ class client:
         """
         packet: Packet
 
-        if (not self._protocol) or self.state != ConnectionState.CONNECTED:
+        if (not self._client) or self.state != ConnectionState.CONNECTED:
             raise WebSocketError("Cannot send data: client is not connected.")
 
         if isinstance(data, Packet):
@@ -605,7 +619,7 @@ class client:
                 channel=None,
             )
 
-        await self._protocol.send(serialize(packet))
+        self._client.send(serialize(packet))
 
     async def send_rpc(self, method_name: str, /, *args, raise_on_rate_limit: bool = False, **kwargs) -> Packet[RPCResponse]:
         """Sends an RPC message to the WebSocket server.
@@ -618,7 +632,7 @@ class client:
             WebSocketError: If the client is not connected.
         """
 
-        if (not self._protocol) or self.state != ConnectionState.CONNECTED:
+        if (not self._client) or self.state != ConnectionState.CONNECTED:
             raise WebSocketError("Cannot send RPC: client is not connected.")
 
         rpc_request = RPCRequest(method=method_name, args=args, kwargs=kwargs)
@@ -627,7 +641,7 @@ class client:
 
         try:
             self._rpc_pending_request[rpc_request.call_id] = future
-            await self._protocol.send(serialize(packet))
+            self._client.send(serialize(packet))
 
             response_packet = await asyncio.wait_for(future, timeout=30)
             rpc_response = cast(Packet[RPCResponse], response_packet)
@@ -660,7 +674,7 @@ class client:
             TimeoutError: If the receive operation times out.
         """
 
-        if (not self._protocol or self.state != ConnectionState.CONNECTED) and self._packet_queue.empty():
+        if (not self._client or self.state != ConnectionState.CONNECTED) and self._packet_queue.empty():
             raise WebSocketError("Cannot receive data: client is not connected.")
 
         try:
@@ -682,16 +696,16 @@ class client:
             with suppress(asyncio.CancelledError):
                 await self._listener_task
 
-        if self._protocol:
-            await self._protocol.close()
+        if self._client:
+            await self._client.close()
 
-        self._protocol = None
+        self._client = None
         self._listener_task = None
         self.state = ConnectionState.CLOSED
 
     async def __aenter__(self):
         """Enters the asynchronous context manager, connecting the client if not already connected."""
-        if not self._protocol:
+        if not self._client:
             await self.connect()
 
         return self
