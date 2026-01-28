@@ -1,4 +1,4 @@
-from enum import IntEnum
+from enum import Enum, IntEnum
 
 
 class ConnectionState(IntEnum):
@@ -27,6 +27,18 @@ class ServerState(IntEnum):
 
     CLOSED = 1
     SERVING = 2
+
+
+class ClientType(Enum):
+    """Represents the type of client that is connected to the server.
+
+    Attributes:
+        FRAMEWORK: The client uses the webshocket framework.
+        GENERIC: The client is a generic client.
+    """
+
+    FRAMEWORK = "Framework"
+    GENERIC = "Generic"
 
 
 class PacketSource(IntEnum):
