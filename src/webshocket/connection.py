@@ -3,12 +3,11 @@ import logging
 import msgspec
 
 from uuid import uuid4
-from websockets import ServerConnection
-from typing import Any, Iterable, Union, Optional, cast, TYPE_CHECKING, TypeVar, Generic
+from picows import WSCloseCode, WSMsgType, WSTransport
+from typing import Any, Iterable, Union, Optional, TYPE_CHECKING, TypeVar, Generic
 
 from .packets import Packet, RPCResponse, serialize, deserialize
-from .enum import PacketSource, ConnectionState
-from .typing import DEFAULT_WEBSHOCKET_SUBPROTOCOL
+from .enum import PacketSource, ConnectionState, ClientType
 from .handler import DefaultWebSocketHandler
 from .exceptions import ConnectionClosedError, ReceiveTimeoutError
 
@@ -23,42 +22,76 @@ TState = TypeVar("TState")
 class ClientConnection(Generic[TState]):
     """Represents a single client connection to the WebSocket server.
 
-    This class wraps the underlying `websockets.ServerConnection` and provides
-    convenient access to session-specific state and channel management.
-    It allows setting and getting attributes dynamically, which are stored
-    in an internal `session_state` dictionary.
+    This class wraps the underlying `picows.WSTransport` and provides convenient access structure
+    to session-specific state, channel management, and communication methods.
+    It supports dynamic attribute access which maps to an internal session state dictionary.
+
+    Attributes:
+        client_type (ClientType): The type of client (e.g., FRAMEWORK, GENERIC).
+        connection_state (ConnectionState): The current state of the connection (CONNECTED, CLOSED, etc.).
+        session_state (dict): A dictionary holding arbitrary user-defined state for this connection.
+        uid (UUID): A unique identifier for this connection instance.
+        logger (Logger): A logger instance for this connection.
+        remote_address (tuple[str, int]): The (host, port) of the connected client.
+        subscribed_channel (set[str]): A set of channel names this client is subscribed to.
     """
 
     __slots__ = (
+        "_remote_address",
+        "_payload_queue",
         "_packet_queue",
         "_protocol",
         "_handler",
+        "client_type",
         "connection_state",
         "session_state",
         "uid",
         "logger",
     )
 
-    def __init__(self, websocket_protocol: ServerConnection, handler: "WebSocketHandler", packet_qsize: int = 1) -> None:
-        """
-        Initializes a new ClientConnection instance.
+    def __init__(
+        self,
+        websocket_protocol: WSTransport,
+        handler: "WebSocketHandler",
+        client_type: ClientType,
+        packet_qsize: int = 128,
+    ) -> None:
+        """Initializes a new ClientConnection instance.
 
-        This constructor sets the internal attributes for the connection and should
-        not be called directly by the user. It is called by the WebSocketHandler.
+        This constructor is intended for internal use by the `WebSocketHandler`
+        and should not be called directly.
 
         Args:
-            websocket_protocol (ServerConnection): The underlying WebSocket protocol object for the connection.
-            handler (WebSocketHandler): The handler instance that manages this connection.
+            websocket_protocol (WSTransport): The underlying picows transport object.
+            handler (WebSocketHandler): The handler instance managing this connection.
+            client_type (ClientType): The classification of the connected client.
+            packet_qsize (int): The maximum size of the packet queue. Defaults to 128.
         """
 
+        object.__setattr__(self, "_payload_queue", asyncio.Queue[bytes](maxsize=1024))
         object.__setattr__(self, "_packet_queue", asyncio.Queue[Packet](maxsize=packet_qsize))
         object.__setattr__(self, "_protocol", websocket_protocol)
         object.__setattr__(self, "_handler", handler)
 
+        object.__setattr__(self, "client_type", client_type)
         object.__setattr__(self, "connection_state", ConnectionState.CONNECTED)
         object.__setattr__(self, "session_state", dict())
         object.__setattr__(self, "uid", uuid4())
         object.__setattr__(self, "logger", logging.getLogger("webshocket.connection"))
+
+        if TYPE_CHECKING:
+            self._protocol: WSTransport
+
+    @property
+    def remote_address(self) -> tuple[str, int]:
+        """A property that gets the remote address of the connection."""
+        try:
+            return self._remote_address
+        except AttributeError:
+            remote_address: tuple[str, int] = self._protocol.underlying_transport.get_extra_info("peername")
+
+            object.__setattr__(self, "_remote_address", remote_address)
+            return self._remote_address
 
     @property
     def subscribed_channel(self) -> set[str]:
@@ -78,7 +111,7 @@ class ClientConnection(Generic[TState]):
 
         return subscribed_channel
 
-    async def send(self, data: Union[Any, Packet]) -> None:
+    def send(self, data: Union[Any, Packet], chunk_size: int = 1024 * 64) -> None:
         """Sends data over the connection.
 
         This is method ensures all data is sent in a structured Packet format.
@@ -88,21 +121,48 @@ class ClientConnection(Generic[TState]):
           default `Packet` before serializing and sending.
         """
 
-        packet: Packet
+        packet: Packet = data
 
-        if isinstance(data, Packet):
-            packet = data
-
-        else:
+        if not isinstance(data, Packet):
             packet = Packet(
                 data=data,
                 source=PacketSource.CUSTOM,
                 channel=None,
             )
 
-        await self._protocol.send(serialize(packet))
+        if self.client_type is ClientType.FRAMEWORK:
+            response = serialize(packet)
+        else:
+            response = msgspec.json.encode(packet)
 
-    async def _send_rpc_response(self, rpc_response: "RPCResponse") -> None:
+        if len(response) <= chunk_size:
+            self._protocol.send(WSMsgType.BINARY, response)
+            return
+
+        # ---------------------------------------------------------
+
+        payload = memoryview(response)
+        payload_length = len(payload)
+        offset = chunk_size
+
+        self._protocol.send(WSMsgType.BINARY, payload[:chunk_size], fin=False)
+
+        while offset + chunk_size < payload_length:
+            self._protocol.send(
+                WSMsgType.CONTINUATION,
+                payload[offset : offset + chunk_size],
+                fin=False,
+            )
+
+            offset += chunk_size
+
+        self._protocol.send(
+            WSMsgType.CONTINUATION,
+            payload[offset:],
+            fin=True,
+        )
+
+    def _send_rpc_response(self, rpc_response: "RPCResponse") -> None:
         """
         Sends an RPC response back to the client.
 
@@ -115,9 +175,7 @@ class ClientConnection(Generic[TState]):
             rpc=rpc_response,
         )
 
-        await self._protocol.send(
-            serialize(packet) if self._protocol.subprotocol == DEFAULT_WEBSHOCKET_SUBPROTOCOL else msgspec.json.encode(packet)
-        )
+        self.send(packet)
 
     async def recv(self, timeout: Optional[float] = 30.0) -> Packet:
         """Receives the next message and parses it into a validated Packet object.
@@ -131,7 +189,6 @@ class ClientConnection(Generic[TState]):
             timeout: Max seconds to wait for a message. Defaults to 30.
 
         Raises:
-            TypeError: If an on_receive_callback is active.
             ConnectionError: If the client is not connected.
             TimeoutError: If no message is received within the timeout period.
             MessageError: If the received data fails to parse as a valid Packet.
@@ -144,7 +201,7 @@ class ClientConnection(Generic[TState]):
         #     raise TypeError("Cannot use manual recv() when an on_receive callback is active.")
         packet: Packet
 
-        if not self._protocol or self.connection_state == ConnectionState.DISCONNECTED:
+        if not self._protocol or self.connection_state is ConnectionState.DISCONNECTED:
             raise ConnectionClosedError("Cannot receive data: client is not connected.")
 
         try:
@@ -152,15 +209,12 @@ class ClientConnection(Generic[TState]):
                 packet = await self._packet_queue.get()
                 return packet
 
-            self._protocol: ServerConnection
-            raw_data = await asyncio.wait_for(self._protocol.recv(), timeout=timeout)
-            raw_data = cast(bytes, raw_data)
+            raw_data = await asyncio.wait_for(self._payload_queue.get(), timeout=timeout)
 
             try:
-                if self._protocol.subprotocol == DEFAULT_WEBSHOCKET_SUBPROTOCOL:
+                if self.client_type is ClientType.FRAMEWORK:
                     packet = deserialize(raw_data, Packet)
                 else:
-                    # packet = Packet.model_validate_json(raw_data)
                     packet = msgspec.json.decode(raw_data, type=Packet)
 
             except (msgspec.ValidationError, msgspec.DecodeError, TypeError) as e:
@@ -191,11 +245,23 @@ class ClientConnection(Generic[TState]):
             channel: A string or iterable that contains lists of channel to leave."""
         self._handler.unsubscribe(self, channel)
 
-    async def close(self, code: int = 1000, reason: str = "") -> None:
+    def close(self, code: WSCloseCode = WSCloseCode.OK, reason: bytes = b"") -> None:
         """Closes the connection."""
 
-        await self._protocol.close(code=code, reason=reason)
         object.__setattr__(self, "connection_state", ConnectionState.CLOSED)
+        self._protocol.send_close(code, reason)
+        self._protocol.disconnect()
+
+    async def __aiter__(self):
+        while self.connection_state != ConnectionState.CLOSED:
+            payload = await self._payload_queue.get()
+
+            if payload is None:
+                break
+
+            yield payload
+
+        raise ConnectionClosedError
 
     def __setattr__(self, name: str, value: Any) -> None:
         """
