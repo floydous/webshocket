@@ -17,7 +17,7 @@ class _TestRpcHandler(webshocket.WebSocketHandler):
         packet: webshocket.Packet,
     ):
         if packet.source != PacketSource.RPC:
-            await connection.send(f"Non-RPC Echo: {packet.data}")
+            connection.send(f"Non-RPC Echo: {packet.data}")
         else:
             pass
 
@@ -177,7 +177,7 @@ async def test_rpc_method_raises_rpc_error(rpc_server):
 async def test_on_receive_handles_non_rpc_packet(rpc_server):
     async with webshocket.WebSocketClient("ws://localhost:5000") as client:
         test_message = "Hello, non-RPC world!"
-        await client.send(test_message)
+        client.send(test_message)
         response_packet = await client.recv()
 
         assert response_packet.source == PacketSource.CUSTOM
@@ -302,11 +302,11 @@ async def test_manual_rpc_add_wo_handler():
         response = await client.send_rpc("say_my_name")
         assert response.data == "Heisenberg"
 
-        await connected_client.send("Hello")
+        connected_client.send("Hello")
         response = await client.recv()
         assert response.data == "Hello"
 
-        await client.send("World")
+        client.send("World")
 
         response = await connected_client.recv()
         assert response.data == "World"

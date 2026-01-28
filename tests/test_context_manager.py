@@ -7,13 +7,11 @@ import webshocket
 @pytest.mark.asyncio
 async def test_simple_server() -> None:
     async with webshocket.WebSocketServer(HOST, PORT) as server:
-        await server.start()
-
         assert server.state == webshocket.ServerState.SERVING
 
         client = webshocket.WebSocketClient(f"ws://{HOST}:{PORT}")
         await client.connect()
-        await client.send("Hello World")
+        client.send("Hello World")
 
         connected_client = await server.accept()
         received_packet = await connected_client.recv()

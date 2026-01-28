@@ -38,7 +38,7 @@ async def test_simple_packet() -> None:
 
         client = webshocket.WebSocketClient(f"ws://{HOST}:{PORT}")
         await client.connect()
-        await client.send(custom_packet)
+        client.send(custom_packet)
 
         connected_client = await server.accept()
         received_response = await connected_client.recv()
@@ -98,7 +98,7 @@ async def test_send_other_datatype():
         await client.connect()
 
         connected_client = await server.accept()
-        await connected_client.send({"hello": "world"})
+        connected_client.send({"hello": "world"})
 
         received_packet = await client.recv()
         assert received_packet.data == {"hello": "world"}
@@ -124,7 +124,7 @@ async def test_send_unserializeable_data():
 
         for item in data_to_send:
             with pytest.raises(TypeError):
-                await client.send(item)
+                client.send(item)
 
     finally:
         await client.close()
@@ -143,7 +143,7 @@ async def test_unknown_packet():
 
         received_packet = await connected_client.recv()
 
-        assert received_packet.data == "Raw String."
+        assert received_packet.data == b"Raw String."
         assert received_packet.source == webshocket.PacketSource.UNKNOWN
 
     finally:

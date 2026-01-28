@@ -69,7 +69,7 @@ async def test_send_bytes_data():
 
     async with webshocket.WebSocketClient("ws://localhost:5000") as client:
         test_bytes = b"hello world bytes"
-        await client.send(test_bytes)
+        client.send(test_bytes)
         response_packet = await client.recv()
 
         assert response_packet.data == test_bytes

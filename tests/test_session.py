@@ -17,18 +17,18 @@ class StateTestHandler(webshocket.WebSocketHandler):
                 key = command_data["key"]
                 value = command_data["value"]
                 setattr(connection, key, value)
-                await connection.send(f"OK: Set {key} to {value}")
+                connection.send(f"OK: Set {key} to {value}")
 
             elif command == "get_state":
                 key = command_data["key"]
                 value = getattr(connection, key, "NOT_FOUND")
-                await connection.send(f"VALUE: {value}")
+                connection.send(f"VALUE: {value}")
 
         except (
             json.JSONDecodeError,
             KeyError,
         ):
-            await connection.send("ERROR: Invalid command format")
+            connection.send("ERROR: Invalid command format")
 
 
 @pytest_asyncio.fixture
@@ -58,7 +58,7 @@ async def test_session_state_set_and_get(
     ) = state_server
 
     async with webshocket.WebSocketClient(uri) as client:
-        await client.send(json.dumps({"command": "set_state", "key": "username", "value": "alice"}))
+        client.send(json.dumps({"command": "set_state", "key": "username", "value": "alice"}))
         response = await client.recv()
         assert response.data == "OK: Set username to alice"
 
@@ -83,10 +83,10 @@ async def test_session_state_is_isolated_per_client(
     client_b_id = str(uuid.uuid4())
 
     async with webshocket.WebSocketClient(uri) as client_a, webshocket.WebSocketClient(uri) as client_b:
-        await client_a.send(json.dumps({"command": "set_state", "key": "user_id", "value": client_a_id}))
+        client_a.send(json.dumps({"command": "set_state", "key": "user_id", "value": client_a_id}))
         await client_a.recv()
 
-        await client_b.send(json.dumps({"command": "set_state", "key": "user_id", "value": client_b_id}))
+        client_b.send(json.dumps({"command": "set_state", "key": "user_id", "value": client_b_id}))
         await client_b.recv()
 
         conn_a = next(
@@ -117,7 +117,7 @@ async def test_session_state_is_cleared_on_disconnect(
     ) = state_server
 
     async with webshocket.WebSocketClient(uri) as client:
-        await client.send(
+        client.send(
             json.dumps(
                 {
                     "command": "set_state",
