@@ -10,6 +10,8 @@ _MISSING = object()
 class Has:
     """Checks if the connection has a specific state attribute."""
 
+    __slots__ = ("key",)
+
     def __init__(self, key: str) -> None:
         self.key = key
 
@@ -24,6 +26,8 @@ class Has:
 class Is:
     """Checks if the connection has a specific state attribute that is truthy."""
 
+    __slots__ = ("key",)
+
     def __init__(self, key: str) -> None:
         self.key = key
 
@@ -36,6 +40,8 @@ class Is:
 
 class IsEqual:
     """Checks if the connection has a specific state attribute with a matching value."""
+
+    __slots__ = ("key", "value")
 
     def __init__(self, key: str, value: TAny) -> None:
         self.key = key
@@ -51,6 +57,8 @@ class IsEqual:
 class Any:
     """Logical OR: Returns True if ANY of the provided predicates are True."""
 
+    __slots__ = ("predicates",)
+
     def __init__(self, *predicates: RPC_Predicate) -> None:
         self.predicates = predicates
 
@@ -63,6 +71,8 @@ class Any:
 
 class All:
     """Logical AND: Returns True if ALL of the provided predicates are True."""
+
+    __slots__ = ("predicates",)
 
     def __init__(self, *predicates: RPC_Predicate) -> None:
         self.predicates = predicates
