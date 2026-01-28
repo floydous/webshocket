@@ -36,7 +36,12 @@ All server-side logic is defined in a class that inherits from ``webshocket.WebS
 
    async def main():
        # Initialize the server with a host, port, and your handler class.
-       server = webshocket.WebSocketServer("localhost", 8765, handler_class=EchoHandler)
+       server = webshocket.WebSocketServer(
+           "localhost", 8765,
+           clientHandler=EchoHandler,
+           # Enable automatic heartbeat to detect dead connections
+           ping_interval=20.0
+       )
 
        print("Starting echo server on ws://localhost:8765")
        # `async with` ensures the server is started and cleanly shut down.
@@ -62,7 +67,7 @@ The client also uses ``async with`` for safe, automatic connection management.
        uri = "ws://localhost:8765"
 
        try:
-           async with webshocket.client(uri) as client:
+           async with webshocket.WebSocketClient(uri) as client:
                print("Connected to server.")
 
                # The recv() method automatically parses incoming messages into Packets
@@ -91,7 +96,7 @@ Beyond basic connections, **webshocket** provides a framework for building sophi
 Secure Connections (WSS/TLS)
 ------------------------------
 
-Enabling encryption is a first-class feature. Simply generate a self-signed certificate and provide the paths when creating your server. The client can then be configured to trust it for local testing.
+Enabling encryption is simple. Create a standard Python ``ssl.SSLContext`` and pass it to the server or client.
 
 1. Generate a Test Certificate
 
@@ -102,17 +107,20 @@ Enabling encryption is a first-class feature. Simply generate a self-signed cert
 **2. Start a Secure Server**
 
 .. code-block:: python
-   :emphasize-lines: 9,10
+   :emphasize-lines: 9-13
 
    # ... imports ...
+   import ssl
 
-   # Define the paths to your certificate files
-   cert_info = {"cert": "cert.pem", "key": "key.pem"}
+   # Create a standard SSL Context
+   ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+   ssl_context.load_cert_chain(certfile="cert.pem", keyfile="key.pem")
 
-   # Pass the certificate info during server initialization
+   # Pass the context during server initialization
    server = webshocket.WebSocketServer(
-       "localhost", 8765, EchoHandler,
-       certificate=cert_info
+       "localhost", 8765,
+       clientHandler=EchoHandler,
+       ssl_context=ssl_context
    )
 
    # Server will now be running on wss://localhost:8765
@@ -120,14 +128,18 @@ Enabling encryption is a first-class feature. Simply generate a self-signed cert
 3. Connect a Secure Client
 
 .. code-block:: python
-   :emphasize-lines: 6
+   :emphasize-lines: 6,9-11
 
    # ... imports ...
+   import ssl
 
-   # Tell the client to trust your self-signed certificate
-   client = webshocket.client(
+   # Trust the self-signed certificate
+   client_ssl = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+   client_ssl.load_verify_locations("cert.pem")
+
+   client = webshocket.WebSocketClient(
        "wss://localhost:8765",
-       ca_cert_path="cert.pem"
+       ssl_context=client_ssl
    )
 
    # The rest of the client code is the same!
@@ -147,18 +159,18 @@ The ``WebSocketHandler`` provides built-in methods for multi-user communication.
                connection.subscribe(room_name)
                await connection.send(f"You joined room '{room_name}'")
                # Use the built-in publish method to notify the room
-               await self.publish(room_name, f"A new user joined.", exclude=connection)
+               await self.publish(room_name, f"A new user joined.", exclude=(connection,))
 
            # A client sends a normal message
            else:
                # Send the message only to channels the client is in
-               for room in connection.subscribed_channels:
-                   await self.publish(room, packet.data, exclude=connection)
+               for room in connection.subscribed_channel:
+                   await self.publish(room, packet.data, exclude=(connection,))
 
 Per-Connection State Management
 ---------------------------------
 
-The ``ClientConnection`` object acts as a dynamic "state bag," allowing you to attach any information to a connection for its entire lifecycle. This is perfect for managing user authentication and other session data.
+The ``ClientConnection`` object acts as a dynamic "state bag," allowing you to attach any information to a connection for its entire lifecycle. This is perfect for managing user authentication and other session data directly on the socket object.
 
 .. code-block:: python
    :emphasize-lines: 6,10
@@ -167,7 +179,7 @@ The ``ClientConnection`` object acts as a dynamic "state bag," allowing you to a
        async def on_receive(self, connection: webshocket.ClientConnection, packet: webshocket.Packet):
            # Pretend the user is sending a login command
            if packet.data.startswith("login"):
-               # Set state directly on the connection object
+               # Set state directly on the connection object like a dictionary or attribute
                connection.username = packet.data.split(" ")[1]
                connection.is_authenticated = True
                await connection.send("Login successful!")
@@ -219,17 +231,6 @@ To expose a method on your `WebSocketHandler` as an RPC endpoint, use the `@rpc_
 
    if __name__ == "__main__":
        asyncio.run(main())
-
-            await client.send_rpc("sum_numbers", 10, 20)
-            response = await client.recv()
-
-            print(f"Sum response: {response.data}")
-
-        await server.close()
-
-
-    if __name__ == "__main__":
-        asyncio.run(main())
 
 This is the output of the code above:
 

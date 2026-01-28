@@ -8,25 +8,40 @@ Server & Client
 ---------------
 
 .. automodule:: webshocket.websocket
-   :members: server, client
+   :members:
+   :undoc-members:
+   :show-inheritance:
 
 Connection Object
 -----------------
+
 .. automodule:: webshocket.connection
    :members:
+   :undoc-members:
+   :show-inheritance:
 
 Handler Interface
 -----------------
+
 .. automodule:: webshocket.handler
    :members:
+   :undoc-members:
+   :show-inheritance:
 
-Data Structures & Types
------------------------
+Data Structures & Type Definitions
+----------------------------------
+
 .. automodule:: webshocket.packets
    :members:
-.. automodule:: webshocket.typing
-   :members:
-.. automodule:: webshocket.enum
-   :members:
+   :undoc-members:
+   :show-inheritance:
+
 .. automodule:: webshocket.exceptions
    :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. automodule:: webshocket.enum
+   :members:
+   :undoc-members:
+   :show-inheritance:

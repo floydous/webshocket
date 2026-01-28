@@ -9,13 +9,12 @@
 import os
 import sys
 
-sys.path.append(os.path.abspath("../.."))
-sys.path.append(os.path.abspath("src/webshocket"))
+sys.path.insert(0, os.path.abspath("../../src"))
 
 project = "webshocket"
 copyright = "2025, Floydous"
 author = "Floydous"
-release = "0.1.5"
+release = "0.4.0"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -25,6 +24,10 @@ extensions = [
     "sphinx.ext.napoleon",
     "sphinx_autodoc_typehints",
 ]
+
+# Napoleon settings
+napoleon_use_ivar = True # Fix duplicate attribute warnings
+napoleon_attr_annotations = True
 
 
 templates_path = ["_templates"]
