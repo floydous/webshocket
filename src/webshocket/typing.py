@@ -1,4 +1,4 @@
-from typing import Callable, Optional, TypedDict, Any, Awaitable, Protocol, TYPE_CHECKING
+from typing import Callable, Optional, Any, Awaitable, Protocol, TYPE_CHECKING
 from dataclasses import dataclass
 
 if TYPE_CHECKING:
@@ -25,7 +25,7 @@ class SessionState(Protocol):
     pass
 
 
-@dataclass(frozen=True)
+@dataclass(slots=True, frozen=True)
 class RateLimitConfig:
     limit: int
     period: float
@@ -40,15 +40,3 @@ class RPCMethod:
 
     def __repr__(self) -> str:
         return f"RPCMethod(func={self.func.__name__}, rate_limit={self.rate_limit}, restricted={self.restricted})"
-
-
-class CertificatePaths(TypedDict):
-    """A TypedDict defining the structure for SSL/TLS certificate paths.
-
-    Attributes:
-        cert_path (str): The file path to the SSL certificate.
-        key_path (str): The file path to the SSL key.
-    """
-
-    cert_path: str
-    key_path: str
