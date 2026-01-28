@@ -1,4 +1,3 @@
-import time
 import msgspec
 
 from typing import Generic, Optional, Any, TypeVar, Type, Sequence, cast
@@ -11,7 +10,7 @@ from .utils import generate_uuid
 T = TypeVar("T", bound=msgspec.Struct)
 
 
-class RPCRequest(msgspec.Struct, tag="request"):
+class RPCRequest(msgspec.Struct, tag="request", gc=False):
     """Represents an RPC (Remote Procedure Call) request."""
 
     method: str
@@ -20,7 +19,7 @@ class RPCRequest(msgspec.Struct, tag="request"):
     call_id: str = field(default_factory=generate_uuid)
 
 
-class RPCResponse(msgspec.Struct, tag="response"):
+class RPCResponse(msgspec.Struct, tag="response", gc=False):
     """Represents an RPC (Remote Procedure Call) response."""
 
     call_id: str
@@ -32,7 +31,7 @@ class RPCResponse(msgspec.Struct, tag="response"):
 RType = TypeVar("RType", bound=RPCRequest | RPCResponse)
 
 
-class Packet(Generic[RType], msgspec.Struct):
+class Packet(Generic[RType], msgspec.Struct, gc=False):
     """A structured data packet for WebSocket communication.
 
     Attributes:
@@ -50,11 +49,12 @@ class Packet(Generic[RType], msgspec.Struct):
     rpc: Optional[RType] = None
     channel: Optional[str] = None
 
-    timestamp: float = field(default_factory=time.time)
+    timestamp: Optional[float] = None
     correlation_id: Optional[str] = None
 
 
-# r = Packet[RPCResponse](source=PacketSource.RPC)
+_encoder = msgspec.msgpack.Encoder()
+_decoder = msgspec.msgpack.Decoder(Packet)
 
 
 def validate_packet(packet: Packet) -> Packet:
@@ -84,10 +84,13 @@ def deserialize(data: bytes, base_model: Type[T] = cast(Type[T], Packet)) -> T:
         A BaseModel object of the specified type if deserialization and
         validation are successful.
     """
+    if base_model is Packet:
+        return cast(T, _decoder.decode(data))
+
     packet = msgspec.msgpack.decode(data, type=base_model)
 
-    if isinstance(packet, Packet):
-        validate_packet(packet)
+    # if isinstance(packet, Packet):
+    #     validate_packet(packet)
 
     return packet
 
@@ -104,7 +107,7 @@ def serialize(base_model: msgspec.Struct) -> bytes:
         A byte array of the serialized BaseModel object.
     """
 
-    if isinstance(base_model, Packet):
-        validate_packet(base_model)
+    # if isinstance(base_model, Packet):
+    #     validate_packet(base_model)
 
-    return msgspec.msgpack.encode(base_model)
+    return _encoder.encode(base_model)
