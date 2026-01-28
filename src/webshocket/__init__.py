@@ -5,12 +5,10 @@ client and server abstractions.
 
 import logging
 
-
 from .rpc import rpc_method, rate_limit
 from .predicate import Has, Is, IsEqual, Any, All
 from .handler import DefaultWebSocketHandler, WebSocketHandler
 from .enum import ServerState, ConnectionState, PacketSource
-from .typing import CertificatePaths
 from .connection import ClientConnection
 from .packets import Packet, RPCRequest, RPCResponse
 from .exceptions import (
@@ -65,8 +63,6 @@ __all__ = [
     "RPCTimeoutError",
     "RPCError",
     "RPCMethodNotFoundError",
-    # Typing
-    "CertificatePaths",
     # Connection
     "ClientConnection",
     # Packets
