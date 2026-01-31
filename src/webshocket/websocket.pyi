@@ -43,12 +43,12 @@ class server(Generic[H]):
     def register_rpc_method(self, func: "RPC_Function", alias_name: Optional[str] = None) -> None: ...
     def subscribe(self, client: "ClientConnection", channel: str | Iterable) -> None: ...
     def unsubscribe(self, client: "ClientConnection", channel: str | Iterable) -> None: ...
-    async def broadcast(
+    def broadcast(
         self,
         data: Union[str | bytes, Packet],
         exclude: Optional[tuple["ClientConnection", ...]] = None,
     ) -> None: ...
-    async def publish(
+    def publish(
         self,
         channel: str | Iterable[str],
         data: Union[str | bytes, Packet],

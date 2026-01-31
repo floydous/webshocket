@@ -68,7 +68,7 @@ async def test_packet_source() -> None:
 
         assert "sport" in connected_client.subscribed_channel
 
-        await server.publish(
+        server.publish(
             "sport",
             payload,
         )
@@ -77,7 +77,7 @@ async def test_packet_source() -> None:
         assert received_packet.data == payload
         assert received_packet.source == webshocket.PacketSource.CHANNEL
 
-        await server.broadcast(payload2)
+        server.broadcast(payload2)
         received_packet = await client.recv()
 
         assert received_packet.data == payload2

@@ -155,11 +155,7 @@ class WebSocketHandler(Generic[TState]):
             raise PacketError("Cannot publish non-channel packet.")
 
         for channel in channels:
-            packet = (
-                Packet(data=data, source=PacketSource.CHANNEL, channel=channel)
-                if not isinstance(data, Packet)
-                else data
-            )
+            packet = Packet(data=data, source=PacketSource.CHANNEL, channel=channel) if not isinstance(data, Packet) else data
 
             for client in self.channels[channel]:
                 if client in exclude_set:

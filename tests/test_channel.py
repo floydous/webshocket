@@ -30,7 +30,7 @@ async def test_simple_subscription() -> None:
         assert "sports" in connected_client_one.subscribed_channel
         assert "news" in connected_client_two.subscribed_channel
 
-        await server.publish(
+        server.publish(
             "sports",
             "Sports News!",
         )
@@ -38,7 +38,7 @@ async def test_simple_subscription() -> None:
         assert received_response.data == "Sports News!"
         assert received_response.source == webshocket.PacketSource.CHANNEL
 
-        await server.publish(
+        server.publish(
             "news",
             "News Report!",
         )
@@ -68,7 +68,7 @@ async def test_broadcast():
         await asyncio.sleep(0.5)
         assert len(server.handler.clients) == number_of_clients
 
-        await server.broadcast("Global Announcement!")
+        server.broadcast("Global Announcement!")
 
         receive_tasks = [client.recv() for client in clients]
         received_packets = await asyncio.gather(*receive_tasks)
@@ -100,7 +100,7 @@ async def test_receive_timeout() -> None:
         connected_client = await server.accept()
         connected_client.subscribe("sports")
 
-        await server.publish(
+        server.publish(
             "news",
             "This is News update!",
         )
@@ -133,7 +133,7 @@ async def test_multiple_publish() -> None:
         connected_client2 = await server.accept()
         connected_client2.subscribe("news")
 
-        await server.publish({"sports", "news"}, "This is Global update!")
+        server.publish({"sports", "news"}, "This is Global update!")
 
         received_packet = await client_sport.recv()
         assert received_packet.data == "This is Global update!"

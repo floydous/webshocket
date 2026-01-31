@@ -4,7 +4,6 @@ from typing import Generic, Optional, Any, TypeVar, Sequence, cast
 from msgspec import field
 
 from .enum import PacketSource, RPCErrorCode
-from .exceptions import PacketValidationError
 from .utils import generate_uuid
 
 T = TypeVar("T", bound=msgspec.Struct)
