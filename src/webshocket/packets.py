@@ -1,6 +1,6 @@
 import msgspec
 
-from typing import Generic, Optional, Any, TypeVar, Type, Sequence, cast
+from typing import Generic, Optional, Any, TypeVar, Sequence, cast
 from msgspec import field
 
 from .enum import PacketSource, RPCErrorCode
@@ -55,22 +55,11 @@ class Packet(Generic[RType], msgspec.Struct, gc=False):
 
 _encoder = msgspec.msgpack.Encoder()
 _decoder = msgspec.msgpack.Decoder(Packet)
+_json_encoder = msgspec.json.Encoder()
+_json_decoder = msgspec.json.Decoder(Packet)
 
 
-def validate_packet(packet: Packet) -> Packet:
-    if packet.rpc is None and packet.data is None:
-        raise PacketValidationError("Data must be provided.") from None
-
-    if packet.source == PacketSource.CHANNEL and packet.channel is None:
-        raise PacketValidationError("Channel must be provided for CHANNEL packets.")
-
-    if packet.channel is not None and packet.source != PacketSource.CHANNEL:
-        raise PacketValidationError("Channel cannot be provided for non-CHANNEL packets.")
-
-    return packet
-
-
-def deserialize(data: bytes, base_model: Type[T] = cast(Type[T], Packet)) -> T:
+def deserialize(data: bytes) -> Packet:
     """Deserializes a byte array into a BaseModel object.
 
     Decode the given byte data using Msgpack and validate it into the
@@ -84,15 +73,7 @@ def deserialize(data: bytes, base_model: Type[T] = cast(Type[T], Packet)) -> T:
         A BaseModel object of the specified type if deserialization and
         validation are successful.
     """
-    if base_model is Packet:
-        return cast(T, _decoder.decode(data))
-
-    packet = msgspec.msgpack.decode(data, type=base_model)
-
-    # if isinstance(packet, Packet):
-    #     validate_packet(packet)
-
-    return packet
+    return cast(Packet, _decoder.decode(data))
 
 
 def serialize(base_model: msgspec.Struct) -> bytes:
@@ -106,8 +87,5 @@ def serialize(base_model: msgspec.Struct) -> bytes:
     Returns:
         A byte array of the serialized BaseModel object.
     """
-
-    # if isinstance(base_model, Packet):
-    #     validate_packet(base_model)
 
     return _encoder.encode(base_model)

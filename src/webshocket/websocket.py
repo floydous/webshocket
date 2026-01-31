@@ -1,3 +1,4 @@
+from webshocket.packets import _json_decoder
 import logging
 import asyncio
 import ssl
@@ -101,10 +102,10 @@ class server(Generic[H]):
                 if not isinstance(data, bytes):
                     raise TypeError("Data to be deserialize must be a bytes, not %s" % type(data))
 
-                packet = deserialize(data, Packet)
+                packet = deserialize(data)
 
             elif client_type == ClientType.GENERIC:
-                packet = msgspec.json.decode(data, type=Packet)
+                packet = _json_decoder.decode(data)
 
         except (msgspec.ValidationError, TypeError, msgspec.DecodeError):
             packet = Packet(data=data, source=PacketSource.UNKNOWN)

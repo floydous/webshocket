@@ -1,3 +1,5 @@
+from webshocket.packets import _json_decoder
+from webshocket.packets import _json_encoder
 import asyncio
 import logging
 import msgspec
@@ -133,7 +135,7 @@ class ClientConnection(Generic[TState]):
         if self.client_type is ClientType.FRAMEWORK:
             response = serialize(packet)
         else:
-            response = msgspec.json.encode(packet)
+            response = _json_encoder.encode(packet)
 
         if len(response) <= chunk_size:
             self._protocol.send(WSMsgType.BINARY, response)
@@ -213,9 +215,9 @@ class ClientConnection(Generic[TState]):
 
             try:
                 if self.client_type is ClientType.FRAMEWORK:
-                    packet = deserialize(raw_data, Packet)
+                    packet = deserialize(raw_data)
                 else:
-                    packet = msgspec.json.decode(raw_data, type=Packet)
+                    packet = _json_decoder.decode(raw_data)
 
             except (msgspec.ValidationError, msgspec.DecodeError, TypeError) as e:
                 self.logger.debug("Failed to decode packet from %s: %s", self.remote_address, e)
