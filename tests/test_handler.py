@@ -1,4 +1,3 @@
-from typing import final
 import picows
 import webshocket
 import pytest
