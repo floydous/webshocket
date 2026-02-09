@@ -11,7 +11,7 @@ from webshocket.exceptions import ReceiveTimeoutError, RateLimitError
 class _TestRpcHandler(webshocket.WebSocketHandler):
     async def on_receive(self, connection: webshocket.ClientConnection, packet: webshocket.Packet):
         if packet.source != PacketSource.RPC and packet.data is not None:
-            await connection.send(packet.data)
+            connection.send(packet.data)
         else:
             pass
 

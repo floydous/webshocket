@@ -4,7 +4,7 @@ import inspect
 from typing import TYPE_CHECKING, Optional, Set, Dict, Iterable, Union, TypeVar, Generic, cast
 
 from .packets import Packet, PacketSource
-from .typing import RPC_Function, RPCMethod, SessionState
+from .typing import RPC_Function, RPC_Predicate, RPCMethod, SessionState
 from .exceptions import PacketError
 
 if TYPE_CHECKING:
@@ -100,6 +100,7 @@ class WebSocketHandler(Generic[TState]):
         self,
         data: Union[str | bytes, Packet],
         exclude: Optional[tuple["ClientConnection", ...]] = None,
+        predicate: Optional[RPC_Predicate] = None,
         **kwargs,
     ) -> None:
         """Broadcasts a message to all connected clients, with optional exclusions.
@@ -129,6 +130,9 @@ class WebSocketHandler(Generic[TState]):
             if client in exclude_set:
                 continue
 
+            if predicate and not predicate(client):
+                continue
+
             client.send(data)
 
     def publish(
@@ -136,6 +140,7 @@ class WebSocketHandler(Generic[TState]):
         channel: str | Iterable[str],
         data: Union[str | bytes, Packet],
         exclude: Optional[tuple["ClientConnection", ...]] = None,
+        predicate: Optional[RPC_Predicate] = None,
     ) -> None:
         """Publishes a message to all clients subscribed to a specific channel.
 
@@ -159,6 +164,9 @@ class WebSocketHandler(Generic[TState]):
 
             for client in self.channels[channel]:
                 if client in exclude_set:
+                    continue
+
+                if predicate and not predicate(client):
                     continue
 
                 client.send(packet)

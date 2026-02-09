@@ -4,7 +4,7 @@ from picows import WSTransport
 
 from typing import Optional, Iterable, Union, Any, Callable, Awaitable, Self, TypeVar, Generic
 from .handler import WebSocketHandler, DefaultWebSocketHandler
-from .typing import RPC_Function
+from .typing import RPC_Function, RPC_Predicate
 from .connection import ClientConnection
 from .packets import Packet, RPCResponse
 from .enum import ConnectionState, ServerState
@@ -47,12 +47,14 @@ class server(Generic[H]):
         self,
         data: Union[str | bytes, Packet],
         exclude: Optional[tuple["ClientConnection", ...]] = None,
+        predicate: Optional[RPC_Predicate] = None,
     ) -> None: ...
     def publish(
         self,
         channel: str | Iterable[str],
         data: Union[str | bytes, Packet],
         exclude: Optional[tuple["ClientConnection", ...]] = None,
+        predicate: Optional[RPC_Predicate] = None,
     ) -> None: ...
     async def _handler(self, transport: WSTransport, listener: picows_server.ServerClientListener) -> None: ...
     async def accept(self) -> ClientConnection: ...

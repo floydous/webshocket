@@ -2,6 +2,8 @@ import picows
 import webshocket
 import pytest
 
+from webshocket.exceptions import ReceiveTimeoutError
+
 HOST, PORT = "127.0.0.1", 5000
 
 
@@ -52,3 +54,30 @@ async def test_max_connection() -> None:
 
     await server.close()
     await client1.close()
+
+
+@pytest.mark.asyncio
+async def test_handler_pubsub_prequisite() -> None:
+    @webshocket.rpc_method()
+    async def get_admin(connection: webshocket.ClientConnection):
+        connection.admin = True
+
+    try:
+        server = webshocket.WebSocketServer(HOST, PORT, max_connection=2)
+        server.register_rpc_method(get_admin)
+        await server.start()
+
+        client_admin = await webshocket.WebSocketClient(f"ws://{HOST}:{PORT}").connect()
+        client_normal = await webshocket.WebSocketClient(f"ws://{HOST}:{PORT}").connect()
+        await client_admin.send_rpc("get_admin")
+
+        server.broadcast("Admin-exclusive broadcast", predicate=webshocket.Is("admin"))
+
+        response_admin = await client_admin.recv()
+        assert response_admin.data == "Admin-exclusive broadcast"
+
+        with pytest.raises(ReceiveTimeoutError):
+            _response_normal = await client_normal.recv(timeout=1)
+
+    finally:
+        await server.close()

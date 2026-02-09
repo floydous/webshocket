@@ -19,6 +19,7 @@ from .typing import (
     RateLimitConfig,
     RPC_Predicate,
 )
+
 from .enum import ConnectionState, PacketSource, ServerState, RPCErrorCode, ClientType
 from .packets import Packet, RPCRequest, serialize, deserialize
 from .connection import ClientConnection
