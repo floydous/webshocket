@@ -6,7 +6,7 @@
 [![Code style: ruff](https://img.shields.io/badge/code_style-ruff-dafd5e)](https://github.com/astral-sh/ruff)
 
 > [!WARNING]
-> Webshocket is still unfinished and is not ready for proper-project use. It is advised to not expect any stability from this project until it reaches a stable release (>=v0.5.0)
+> Webshocket is still unfinished and is not ready for proper-project use. It is advised to not expect any stability from this project until it reaches a stable release
 
 # Webshocket
 
@@ -14,10 +14,26 @@ Webshocket is a lightweight Python framework designed to handle the complexity o
 
 # Why Webshocket?
 
-- **Built for Tunnels**: Since Webshocket runs over WebSockets (HTTP), it works perfectly with free tunnel services like Cloudflare Tunnels (Argo) or Localtunnel. Avoid expensive TCP-only tunnels like ngrok.
-- **Focus on Your Logic**: Perfect for AI and IoT projects. Just handle the packets and session state while we handle the network heartbeats and protocol validation.
-- **Good Performance**: Handles **17,000+ RPC calls/sec** on a single connection with **50MB/s+** throughput.
-- **Elegant State Management**: No more global dicts. Assign data directly to the `connection` object and it persists for the session.
+Exposing local TCP projects to the internet effectively often requires expensive paid tunnels or unstable free alternatives. Webshocket solves this by running over standard WebSockets, making it natively compatible with robust, free HTTP tunnel services like Cloudflare Argo and LocalTunnel.
+
+It combines the simplicity of raw sockets with a rich feature set for easier development:
+
+- **Free Tunneling:** Works out-of-the-box with any HTTP/WebSocket tunnel.
+- **Developer Experience:** Includes a complete RPC system, session state management, rate limiting, and pub/sub channels—no complex middleware or global state required.
+
+## Comparison with Other WebSocket Libraries
+
+| Feature          | Webshocket                 | websockets      | socket.io           | FastAPI WS      |
+| ---------------- | -------------------------- | --------------- | ------------------- | --------------- |
+| RPC Layer        | ✅ Built-in                | ❌ Manual       | ⚠ Client-driven     | ❌ Manual       |
+| Session State    | ✅ Connection attrs        | ❌ Manual       | ✅ Rooms            | ❌ Manual       |
+| Predicates/Auth  | ✅ Built-in                | ❌ Manual       | ⚠ Library-dependent | ❌ Manual       |
+| Pub/Sub Channels | ✅ Built-in                | ❌ Manual       | ✅ Rooms            | ❌ Manual       |
+| Rate Limiting    | ✅ Decorator-based         | ❌ Manual       | ❌ Manual           | ⚠ Middleware    |
+| Auto-Retry       | ✅ Built-in (exp. backoff) | ❌ Manual       | ✅ Built-in         | ❌ Manual       |
+| HTTP Tunnels     | ✅ Designed for            | ✅ Compatible   | ⚠ HTTP fallback     | ✅ Compatible   |
+| Cross-Language   | ✅ Binary + JSON           | ⚠ Protocol only | ✅ Client libs      | ⚠ Protocol only |
+| Performance Core | picows (Cython)            | Pure Python     | JS-heavy            | ASGI stack      |
 
 # Unique Features at a Glance
 
@@ -54,7 +70,57 @@ No more look-up tables. Assign data directly to the client connection; Webshocke
         connection.subscribe("broadcast-channel")
 ```
 
-### 3. Integrated Tunnelling & Deployment
+### 3. Decorator-Based Rate Limiting
+
+Protect your RPC methods from abuse with a simple decorator. Supports human-readable periods and optional auto-disconnect.
+
+```python
+class MyHandler(webshocket.WebSocketHandler):
+    @webshocket.rate_limit(limit=5, period="1m")  # 5 calls per minute
+    @webshocket.rpc_method()
+    async def expensive_operation(self, connection: webshocket.ClientConnection, query: str):
+        return await run_ai_model(query)
+
+    @webshocket.rate_limit(limit=100, period="10s", disconnect_on_limit_exceeded=True)
+    @webshocket.rpc_method()
+    async def chat_message(self, connection: webshocket.ClientConnection, msg: str):
+        return await process_message(msg)
+```
+
+### 4. Pub/Sub Channels with Smart Filtering
+
+Subscribe clients to channels, then publish messages with optional predicates to filter recipients.
+
+```python
+class GameHandler(webshocket.WebSocketHandler):
+    @webshocket.rpc_method()
+    async def join_game(self, connection: webshocket.ClientConnection, room: str):
+        connection.subscribe(room)
+        connection.team = "red"
+
+    @webshocket.rpc_method()
+    async def send_team_update(self, connection: webshocket.ClientConnection, room: str, data):
+        # Only publish to players on the "red" team in this room
+        self.publish(room, data, predicate=webshocket.IsEqual("team", "red"))
+
+        # Or broadcast to ALL connected clients who are admins
+        self.broadcast("Server announcement", predicate=webshocket.Is("is_admin"))
+```
+
+### 5. Auto-Retry with Exponential Backoff
+
+The client handles reconnection automatically — no manual retry loops needed.
+
+```python
+async def main():
+    client = webshocket.WebSocketClient("ws://your-tunnel.url")
+    await client.connect(retry=True, max_retry_attempt=5, retry_interval=2)
+
+    result = await client.send_rpc("add", 10, 20)
+    print(result.data)  # 30
+```
+
+### 6. Integrated Tunnelling & Deployment
 
 Designed to run perfectly behind free HTTP tunnels, making it the easiest way to expose a local AI or IoT project to the world.
 
@@ -65,7 +131,7 @@ async def main():
         await server.serve_forever()
 ```
 
-### 4. Cross-Language Compatibility
+### 7. Cross-Language Compatibility
 
 Webshocket is designed to be language-agnostic. While the Python client is optimized with MessagePack, the server natively understands **standard JSON packets**. This means you can build a client in **JavaScript**, Java, or C# using nothing but the standard library.
 
