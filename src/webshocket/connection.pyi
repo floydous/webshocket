@@ -1,5 +1,5 @@
 from picows import WSCloseCode, WSTransport
-import websockets
+
 from typing import Any, AsyncGenerator, Union, Iterable, Optional, Generic, TypeVar
 from uuid import UUID
 
@@ -10,12 +10,25 @@ from .packets import Packet, RPCResponse
 TState = TypeVar("TState", bound=SessionState)
 
 class ClientConnection(Generic[TState]):
-    __slots__ = ("_packet_queue", "_protocol", "_handler", "connection_state", "session_state", "uid")
+    __slots__ = (
+        "_remote_address",
+        "_payload_queue",
+        "_packet_queue",
+        "_protocol",
+        "_handler",
+        "client_type",
+        "connection_state",
+        "session_state",
+        "uid",
+        "logger",
+    )
 
-    _protocol: websockets.ServerConnection
+    _protocol: WSTransport
+    client_type: ClientType
     session_state: TState
     connection_state: ConnectionState
     uid: UUID
+    logger: Any
 
     def __init__(
         self,
