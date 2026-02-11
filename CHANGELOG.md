@@ -2,6 +2,19 @@
 
 All notable changes to the `webshocket` library will be documented in this file.
 
+## [0.5.0] - 2026-02-11
+
+### Changed
+
+- **Picows Migration**: Replaced `websockets` with `picows` for handling WebSocket frames. This significantly improves performance and reduces memory usage.
+- **Native Fragmentation**: Implemented native WebSocket fragmentation support. Large payloads are now automatically split into 64KB chunks.
+- **Async Mismatch Fixes**: Fixed type hint inconsistencies where `client.send` was marked as `async` but implemented as synchronous.
+
+### Added
+
+- **Graceful Shutdown**: Improved `server.close()` to send proper Close frames (GOAWAY) to all clients before shutting down.
+- **Chunking Tests**: Added comprehensive tests for 64KB payload boundaries and large message handling.
+
 ## [0.4.0] - 2026-01-20
 
 ### Added
