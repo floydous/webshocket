@@ -389,7 +389,7 @@ class server(Generic[H]):
         This method iterates through all connected clients and closes their connections.
         """
         for client in self.handler.clients:
-            client.close()
+            client.close(WSCloseCode.GOING_AWAY)
 
     async def close(self) -> None:
         """Closes the WebSocket server gracefully.
@@ -398,8 +398,8 @@ class server(Generic[H]):
         waits for all existing connections to close.
         """
         if self._server and self._server._picows_server:
-            self._server._picows_server.close()
             self._disconnect_clients()
+            self._server._picows_server.close()
 
             await self._server._picows_server.wait_closed()
 

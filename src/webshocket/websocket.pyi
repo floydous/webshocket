@@ -38,7 +38,8 @@ class server(Generic[H]):
         clientHandler: type[H] = DefaultWebSocketHandler,
         ssl_context: Optional[ssl.SSLContext] = None,
         max_connection: Optional[int] = None,
-        packet_qsize: int = 128,
+        packet_qsize: int = 512,
+        rpc_task_limit: int = 1024,
     ) -> None: ...
     def register_rpc_method(self, func: "RPC_Function", alias_name: Optional[str] = None) -> None: ...
     def subscribe(self, client: "ClientConnection", channel: str | Iterable) -> None: ...
