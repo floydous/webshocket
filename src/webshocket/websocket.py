@@ -661,7 +661,7 @@ class client:
 
         return rpc_response
 
-    async def recv(self, timeout: int | None = 30) -> Packet:
+    async def recv(self, timeout: int | float | None = 30) -> Packet:
         """Receives data from the WebSocket connection.
 
         Args:
