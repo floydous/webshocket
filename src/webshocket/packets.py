@@ -26,6 +26,9 @@ class RPCResponse(msgspec.Struct, tag="response", gc=False):
     response: Optional[Any] = None
     error: None | RPCErrorCode = None
 
+    is_stream: bool = False
+    is_end: bool = False
+
 
 RType = TypeVar("RType", bound=RPCRequest | RPCResponse)
 

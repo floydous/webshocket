@@ -37,6 +37,7 @@ class RPCMethod:
     func: Callable
     rate_limit: Optional[RateLimitConfig] = None
     restricted: Optional[RPC_Predicate] = None
+    is_stream: bool = False
 
     def __repr__(self) -> str:
         return f"RPCMethod(func={self.func.__name__}, rate_limit={self.rate_limit}, restricted={self.restricted})"

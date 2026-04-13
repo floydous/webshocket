@@ -1,4 +1,3 @@
-from webshocket.packets import _json_decoder
 import logging
 import asyncio
 import ssl
@@ -6,13 +5,13 @@ import time
 import msgspec
 
 from contextlib import suppress
-from typing import Optional, Callable, Awaitable, Union, Any, Self, TypeVar, Generic, cast
+from typing import Optional, Callable, Awaitable, Union, Any, Self, TypeVar, Generic, AsyncGenerator, cast
 from picows import WSCloseCode, WSTransport
 from random import uniform
 
 from ._internal import picows_server, picows_client
 
-from .packets import RPCResponse
+from .packets import RPCResponse, _json_decoder
 from .handler import WebSocketHandler, DefaultWebSocketHandler
 from .typing import (
     RPCMethod,
@@ -57,6 +56,7 @@ class server(Generic[H]):
         "_server",
         "_client_bucket",
         "_rpc_task_limit",
+        "_max_subscribed_channels",
     )
 
     def __init__(
@@ -69,6 +69,8 @@ class server(Generic[H]):
         max_connection: Optional[int] = None,
         packet_qsize: int = 512,
         rpc_task_limit: int = 1024,
+        # ---- client ----
+        max_subscribed_channels: int = 5,
     ) -> None:
         """Initializes a new WebSocket server instance.
 
@@ -93,6 +95,8 @@ class server(Generic[H]):
         self._server: picows_server.PicowsServer | None = None
         self._client_bucket: asyncio.Queue[ClientConnection] = asyncio.Queue()
         self._rpc_task_limit = asyncio.Semaphore(rpc_task_limit)
+
+        self._max_subscribed_channels = max_subscribed_channels
 
     @staticmethod
     def _to_packet(data: str | bytes, client_type: ClientType) -> Packet:
@@ -130,9 +134,19 @@ class server(Generic[H]):
         method_name = rpc_request.method
         call_id = rpc_request.call_id
 
+        if method_name == "__abort__":
+            target_call_id = rpc_request.args[0]
+            task = connection._active_stream.pop(target_call_id, None)
+
+            if task is not None:
+                task.cancel()
+
+            return
+
         error: RPCErrorCode | None = None
         error_message: Optional[str] = None
         result: Any = None
+        response_sent = False
 
         try:
             rpc_function: RPCMethod | None = self.handler._rpc_methods.get(method_name, None)
@@ -145,6 +159,7 @@ class server(Generic[H]):
                         error=RPCErrorCode.METHOD_NOT_FOUND,
                     ),
                 )
+                response_sent = True
                 return
 
             if restriction := rpc_function.restricted:
@@ -152,6 +167,7 @@ class server(Generic[H]):
 
                 if access_error:
                     connection._send_rpc_response(access_error)
+                    response_sent = True
                     return
 
             if rate_limit := rpc_function.rate_limit:
@@ -159,13 +175,37 @@ class server(Generic[H]):
 
                 if limit_error:
                     connection._send_rpc_response(limit_error)
+                    response_sent = True
                     return
 
-            result = await self._execute_rpc_method(
-                connection,
-                rpc_function.func,
-                rpc_request,
-            )
+            if rpc_function.is_stream:
+                connection._active_stream[call_id] = asyncio.current_task()
+
+                try:
+                    async for stdout in rpc_function.func(connection, *rpc_request.args, **cast(dict[str, Any], rpc_request.kwargs)):
+                        connection._send_rpc_response(RPCResponse(call_id=call_id, response=stdout, is_stream=True))
+
+                    connection._send_rpc_response(RPCResponse(call_id=call_id, is_stream=True, is_end=True))
+
+                except Exception as stream_err:
+                    self.logger.exception("Streaming RPC failed midway for method '%s'", method_name)
+
+                    connection._send_rpc_response(
+                        RPCResponse(
+                            call_id=call_id,
+                            response=f"\nStream aborted: {stream_err}",
+                            error=RPCErrorCode.INTERNAL_SERVER_ERROR,
+                            is_stream=True,
+                            is_end=True,
+                        )
+                    )
+                finally:
+                    connection._active_stream.pop(call_id, None)
+
+                response_sent = True
+                return
+
+            result = await self._execute_rpc_method(connection, rpc_function.func, rpc_request)
 
         except RPCError as rcp_error:
             error_message = str(rcp_error)
@@ -181,7 +221,7 @@ class server(Generic[H]):
 
             self.logger.exception("RPC execution failed for method '%s'", method_name)
 
-        finally:
+        if not response_sent:
             rpc_response = RPCResponse(
                 response=error_message or result,
                 call_id=call_id,
@@ -284,6 +324,7 @@ class server(Generic[H]):
             packet_qsize=self._packet_qsize,
             handler=self.handler,
             client_type=ClientType.FRAMEWORK if bool(has_subprotocol) else ClientType.GENERIC,
+            max_subscribed_channels=self._max_subscribed_channels,
         )
 
         listener._connection = _websocket
@@ -321,6 +362,9 @@ class server(Generic[H]):
 
             for channel_name in list(self.handler.channels.keys()):
                 _websocket.unsubscribe(channel_name)
+
+            for pattern_name in list(self.handler.patterns.keys()):
+                _websocket.unsubscribe(pattern_name)
 
             await self.handler.on_disconnect(_websocket)
 
@@ -450,6 +494,7 @@ class client:
         "_listener_task",
         "_packet_queue",
         "_rpc_pending_request",
+        "_rpc_pending_stream",
         "state",
         "logger",
         "on_receive_callback",
@@ -485,6 +530,7 @@ class client:
 
         self._packet_queue: asyncio.Queue[Packet] = asyncio.Queue(maxsize=max_packet_qsize)
         self._rpc_pending_request: dict[str, asyncio.Future] = {}
+        self._rpc_pending_stream: dict[str, asyncio.Queue] = {}
 
         self.state = ConnectionState.DISCONNECTED
         self.logger = logging.getLogger("webshocket.client")
@@ -514,6 +560,12 @@ class client:
 
                 if isinstance(packet.rpc, RPCResponse) and packet.source == PacketSource.RPC:
                     packet.data = packet.rpc.response
+
+                    if packet.rpc.is_stream:
+                        if packet.rpc.call_id in self._rpc_pending_stream:
+                            self._rpc_pending_stream[packet.rpc.call_id].put_nowait(packet)
+
+                        continue
 
                     if packet.rpc.call_id in self._rpc_pending_request:
                         future = self._rpc_pending_request.pop(packet.rpc.call_id)
@@ -623,6 +675,43 @@ class client:
 
         self._client.send(serialize(packet))
 
+    async def stream_rpc(self, method_name: str, *args, **kwargs) -> AsyncGenerator[Packet[RPCResponse], None]:
+        if (not self._client) or self.state != ConnectionState.CONNECTED:
+            raise WebSocketError("Cannot send RPC: client is not connected.")
+
+        rpc_request = RPCRequest(method=method_name, args=args, kwargs=kwargs)
+        packet: Packet = Packet(rpc=rpc_request, source=PacketSource.RPC)
+        queue: asyncio.Queue[Packet[RPCResponse]] = asyncio.Queue()
+        graceful_end = False
+
+        try:
+            self._rpc_pending_stream[rpc_request.call_id] = queue
+            self._client.send(serialize(packet))
+
+            while True:
+                packet = await queue.get()
+
+                if isinstance(packet.rpc, RPCResponse):
+                    if packet.rpc.error is not None:
+                        yield packet
+                        break
+
+                    if packet.rpc.is_end:
+                        graceful_end = True
+                        break
+
+                    yield packet
+
+        finally:
+            if not graceful_end:
+                abort_req = RPCRequest(method="__abort__", args=(rpc_request.call_id,))
+
+                if self._client and self.state == ConnectionState.CONNECTED:
+                    self._client.send(serialize(Packet(source=PacketSource.RPC, rpc=abort_req)))
+
+            if rpc_request.call_id in self._rpc_pending_stream:
+                self._rpc_pending_stream.pop(rpc_request.call_id)
+
     async def send_rpc(self, method_name: str, /, *args, raise_on_rate_limit: bool = False, **kwargs) -> Packet[RPCResponse]:
         """Sends an RPC message to the WebSocket server.
 
@@ -646,9 +735,8 @@ class client:
             self._client.send(serialize(packet))
 
             response_packet = await asyncio.wait_for(future, timeout=30)
-            rpc_response = cast(Packet[RPCResponse], response_packet)
 
-            if isinstance(rpc_response.rpc, RPCResponse) and rpc_response.rpc.error == RPCErrorCode.RATE_LIMIT_EXCEEDED:
+            if isinstance(response_packet.rpc, RPCResponse) and response_packet.rpc.error == RPCErrorCode.RATE_LIMIT_EXCEEDED:
                 if raise_on_rate_limit:
                     raise RateLimitError("RPC call rate limit exceeded.")
 
@@ -659,7 +747,7 @@ class client:
             if rpc_request.call_id in self._rpc_pending_request:
                 self._rpc_pending_request.pop(rpc_request.call_id)
 
-        return rpc_response
+        return response_packet
 
     async def recv(self, timeout: int | float | None = 30) -> Packet:
         """Receives data from the WebSocket connection.

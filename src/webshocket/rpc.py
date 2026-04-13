@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 
 from functools import wraps
 from typing import Callable, Any, Optional, TYPE_CHECKING
@@ -37,16 +38,28 @@ def rpc_method(alias_name: Optional[str] = None, requires: Optional[RPC_Predicat
     """
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-        if not asyncio.iscoroutinefunction(func):
+        is_asyncgenfunction = inspect.isasyncgenfunction(func)
+
+        if not (asyncio.iscoroutinefunction(func) or is_asyncgenfunction):
             raise TypeError(f"RPC method '{func.__name__}' must be an async function.")
 
-        @wraps(func)
-        async def wrapper(self: "WebSocketHandler", *args: Any, **kwargs: Any) -> Any:
-            return await func(self, *args, **kwargs)
+        if is_asyncgenfunction:
+
+            @wraps(func)
+            async def wrapper(self: "WebSocketHandler", *args: Any, **kwargs: Any) -> Any:
+                async for chunk in func(self, *args, **kwargs):
+                    yield chunk
+        else:
+
+            @wraps(func)
+            async def wrapper(self: "WebSocketHandler", *args: Any, **kwargs: Any) -> Any:
+                return await func(self, *args, **kwargs)
 
         setattr(wrapper, "_rpc_alias_name", (alias_name or func.__name__))
+        setattr(wrapper, "_is_stream", is_asyncgenfunction)
         setattr(wrapper, "_restricted", requires)
         setattr(wrapper, "_is_rpc_method", True)
+
         return wrapper
 
     return decorator
@@ -79,12 +92,20 @@ def rate_limit(
     """
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-        if not asyncio.iscoroutinefunction(func):
+        if not (asyncio.iscoroutinefunction(func) or inspect.isasyncgenfunction(func)):
             raise TypeError(f"RPC method '{func.__name__}' must be an async function.")
 
-        @wraps(func)
-        async def wrapper(self: "WebSocketHandler", *args: Any, **kwargs: Any) -> Any:
-            return await func(self, *args, **kwargs)
+        if inspect.isasyncgenfunction(func):
+
+            @wraps(func)
+            async def wrapper(self: "WebSocketHandler", *args: Any, **kwargs: Any) -> Any:
+                async for chunk in func(self, *args, **kwargs):
+                    yield chunk
+        else:
+
+            @wraps(func)
+            async def wrapper(self: "WebSocketHandler", *args: Any, **kwargs: Any) -> Any:
+                return await func(self, *args, **kwargs)
 
         setattr(
             wrapper,
