@@ -81,6 +81,6 @@ class RPCMethodNotFoundError(RPCError):
 
 
 class RateLimitError(RPCError):
-    """Raised when an RPC method is not found."""
+    """Raised when an RPC call rate limit is exceeded."""
 
     pass
