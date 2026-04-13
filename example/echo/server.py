@@ -5,7 +5,7 @@ from webshocket import ClientConnection, Packet
 
 class ClientHandler(webshocket.WebSocketHandler):
     async def on_receive(self, connection: ClientConnection, packet: Packet):
-        await connection.send("Echo: " + packet.data)
+        connection.send("Echo: " + packet.data)
 
     @webshocket.rpc_method()
     async def echo(self, connection: ClientConnection, message: str):
