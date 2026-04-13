@@ -12,6 +12,7 @@ from .packets import Packet, RPCResponse, serialize, deserialize
 from .enum import PacketSource, ConnectionState, ClientType
 from .handler import DefaultWebSocketHandler
 from .exceptions import ConnectionClosedError, ReceiveTimeoutError
+from .constant import DEFAULT_CHUNK_SIZE
 
 if TYPE_CHECKING:
     from .handler import WebSocketHandler
@@ -32,6 +33,7 @@ class ClientConnection(Generic[TState]):
         client_type (ClientType): The type of client (e.g., FRAMEWORK, GENERIC).
         connection_state (ConnectionState): The current state of the connection (CONNECTED, CLOSED, etc.).
         session_state (dict): A dictionary holding arbitrary user-defined state for this connection.
+        max_subscribed_channels (int): The maximum number of channels this client can subscribe to.
         uid (UUID): A unique identifier for this connection instance.
         logger (Logger): A logger instance for this connection.
         remote_address (tuple[str, int]): The (host, port) of the connected client.
@@ -44,9 +46,12 @@ class ClientConnection(Generic[TState]):
         "_packet_queue",
         "_protocol",
         "_handler",
+        "_subscribed_channels",
+        "_active_stream",
         "client_type",
         "connection_state",
         "session_state",
+        "max_subscribed_channels",
         "uid",
         "logger",
     )
@@ -57,6 +62,7 @@ class ClientConnection(Generic[TState]):
         handler: "WebSocketHandler",
         client_type: ClientType,
         packet_qsize: int = 128,
+        max_subscribed_channels: int = 5,
     ) -> None:
         """Initializes a new ClientConnection instance.
 
@@ -70,8 +76,10 @@ class ClientConnection(Generic[TState]):
             packet_qsize (int): The maximum size of the packet queue. Defaults to 128.
         """
 
+        object.__setattr__(self, "_subscribed_channels", set())
         object.__setattr__(self, "_payload_queue", asyncio.Queue[bytes](maxsize=1024))
         object.__setattr__(self, "_packet_queue", asyncio.Queue[Packet](maxsize=packet_qsize))
+        object.__setattr__(self, "_active_stream", dict())
         object.__setattr__(self, "_protocol", websocket_protocol)
         object.__setattr__(self, "_handler", handler)
 
@@ -80,9 +88,13 @@ class ClientConnection(Generic[TState]):
         object.__setattr__(self, "session_state", dict())
         object.__setattr__(self, "uid", uuid4())
         object.__setattr__(self, "logger", logging.getLogger("webshocket.connection"))
+        object.__setattr__(self, "max_subscribed_channels", max_subscribed_channels)
 
         if TYPE_CHECKING:
             self._protocol: WSTransport
+            self.max_subscribed_channels: int
+            self._subscribed_channels: set[str]
+            self._active_stream: dict[str, asyncio.Task[Any]]
 
     @property
     def remote_address(self) -> tuple[str, int]:
@@ -97,23 +109,14 @@ class ClientConnection(Generic[TState]):
 
     @property
     def subscribed_channel(self) -> set[str]:
-        """A property that gets the authoritative list of channels from the handler.
+        """Returns the set of channel names this client is subscribed to.
 
         Returns:
-            A set of channel names that the client is subscribed to.
+            A copy of the internal subscribed channels set.
         """
+        return self._subscribed_channels.copy()
 
-        subscribed_channel = set()
-
-        for channel_name, client_list in self._handler.channels.items():
-            if self not in client_list:
-                continue
-
-            subscribed_channel.add(channel_name)
-
-        return subscribed_channel
-
-    def send(self, data: Union[Any, Packet], chunk_size: int = 1024 * 64) -> None:
+    def send(self, data: Union[Any, Packet], chunk_size: int = DEFAULT_CHUNK_SIZE) -> None:
         """Sends data over the connection.
 
         This is method ensures all data is sent in a structured Packet format.
@@ -232,13 +235,19 @@ class ClientConnection(Generic[TState]):
         except asyncio.TimeoutError:
             raise ReceiveTimeoutError(f"Receive operation timed out after {timeout} seconds.") from None
 
-    def subscribe(self, channel: Union[str, Iterable[str]]) -> None:
+    def subscribe(self, channel: Union[str, Iterable[str]]) -> bool:
         """A shortcut method for this connection to join one or more channels.
 
         Args:
             channel: A string or iterable that contains lists of channel to join.
         """
-        self._handler.subscribe(self, channel)
+
+        # 0 means no limit
+        if self.max_subscribed_channels > len(self._subscribed_channels) and self.max_subscribed_channels != 0:
+            self._handler.subscribe(self, channel)
+            return True
+
+        return False
 
     def unsubscribe(self, channel: Union[str, Iterable[str]]) -> None:
         """A shortcut method for this connection to leave one or more channels.
