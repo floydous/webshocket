@@ -13,8 +13,8 @@ class RPCRequest(msgspec.Struct, tag="request", gc=False):
     """Represents an RPC (Remote Procedure Call) request."""
 
     method: str
-    args: Sequence[Any] = tuple()
-    kwargs: dict[str, Any] = dict()
+    args: Sequence[Any] = field(default_factory=tuple)
+    kwargs: dict[str, Any] = field(default_factory=dict)
     call_id: str = field(default_factory=generate_uuid)
 
 
