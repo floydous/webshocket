@@ -1,4 +1,5 @@
 import pytest
+import pytest_asyncio
 import asyncio
 
 import webshocket
@@ -26,11 +27,16 @@ class _TestRpcHandler(webshocket.WebSocketHandler):
         return "Delayed response"
 
 
-@pytest.mark.asyncio
-async def test_rate_limit():
+@pytest_asyncio.fixture
+async def server():
     server = webshocket.WebSocketServer("localhost", 5000, clientHandler=_TestRpcHandler)
     await server.start()
+    yield server
+    await server.close()
 
+
+@pytest.mark.asyncio
+async def test_rate_limit(server):
     payload = b"Hello World"
 
     async with webshocket.WebSocketClient("ws://localhost:5000") as client:
@@ -46,32 +52,20 @@ async def test_rate_limit():
         assert isinstance(response_on_error.rpc, RPCResponse)
         assert response_on_error.rpc.error == RPCErrorCode.RATE_LIMIT_EXCEEDED
 
-    await server.close()
-
 
 @pytest.mark.asyncio
-async def test_rpc_timeout():
-    server = webshocket.WebSocketServer("localhost", 5000, clientHandler=_TestRpcHandler)
-    await server.start()
-
+async def test_rpc_timeout(server):
     async with webshocket.WebSocketClient("ws://localhost:5000") as client:
         with pytest.raises(ReceiveTimeoutError):
             await client.send_rpc("delayed_response", delay=2)
             await client.recv(timeout=1)
 
-    await server.close()
-
 
 @pytest.mark.asyncio
-async def test_send_bytes_data():
-    server = webshocket.WebSocketServer("localhost", 5000, clientHandler=_TestRpcHandler)
-    await server.start()
-
+async def test_send_bytes_data(server):
     async with webshocket.WebSocketClient("ws://localhost:5000") as client:
         test_bytes = b"hello world bytes"
         client.send(test_bytes)
         response_packet = await client.recv()
 
         assert response_packet.data == test_bytes
-
-    await server.close()

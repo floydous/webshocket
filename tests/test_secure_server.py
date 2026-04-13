@@ -1,7 +1,7 @@
 import webshocket
 import pytest
+import pytest_asyncio
 import ssl
-import websockets
 
 from webshocket.handler import WebSocketHandler
 
@@ -20,14 +20,20 @@ class DummyHandler(WebSocketHandler):
         connection.send("Echo: " + str(packet.data))
 
 
-@pytest.mark.asyncio
-async def test_secure_server():
-    try:
-        server = webshocket.WebSocketServer("127.0.0.1", 8080, clientHandler=DummyHandler, ssl_context=server_ctx)
-        await server.start()
+@pytest_asyncio.fixture
+async def secure_server():
+    server = webshocket.WebSocketServer("127.0.0.1", 8080, clientHandler=DummyHandler, ssl_context=server_ctx)
+    await server.start()
+    yield server
+    await server.close()
 
-        client = webshocket.WebSocketClient("wss://localhost:8080", ssl_context=client_ctx)
-        await client.connect()
+
+@pytest.mark.asyncio
+async def test_secure_server(secure_server):
+    client = webshocket.WebSocketClient("wss://localhost:8080", ssl_context=client_ctx)
+    await client.connect()
+
+    try:
         client.send("Hello World")
 
         response = await client.recv()
@@ -36,19 +42,10 @@ async def test_secure_server():
 
     finally:
         await client.close()
-        await server.close()
 
 
 @pytest.mark.asyncio
-async def test_unsecured_client():
-    try:
-        server = webshocket.WebSocketServer("127.0.0.1", 8080, clientHandler=DummyHandler, ssl_context=server_ctx)
-        await server.start()
-
-        with pytest.raises(ssl.SSLCertVerificationError):
-            client = webshocket.WebSocketClient("wss://localhost:8080")
-            await client.connect()
-
-    finally:
-        await client.close()
-        await server.close()
+async def test_unsecured_client(secure_server):
+    with pytest.raises(ssl.SSLCertVerificationError):
+        client = webshocket.WebSocketClient("wss://localhost:8080")
+        await client.connect()

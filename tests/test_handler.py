@@ -1,8 +1,8 @@
 import picows
 import webshocket
 import pytest
+import pytest_asyncio
 import asyncio
-
 
 from webshocket.exceptions import ReceiveTimeoutError
 
@@ -19,15 +19,28 @@ class customClientHandler(webshocket.handler.WebSocketHandler):
         connection.send(f"Echo: {packet.data}")
 
 
-@pytest.mark.asyncio
-async def test_server_handler() -> None:
+@pytest_asyncio.fixture
+async def handler_server():
     server = webshocket.WebSocketServer(HOST, PORT, clientHandler=customClientHandler)
     await server.start()
+    yield server
+    await server.close()
+
+
+@pytest_asyncio.fixture
+async def default_server():
+    server = webshocket.WebSocketServer(HOST, PORT)
+    await server.start()
+    yield server
+    await server.close()
+
+
+@pytest.mark.asyncio
+async def test_server_handler(handler_server) -> None:
+    client = webshocket.WebSocketClient(f"ws://{HOST}:{PORT}")
+    await client.connect()
 
     try:
-        client = webshocket.WebSocketClient(f"ws://{HOST}:{PORT}")
-        await client.connect()
-
         on_connect_packet = await client.recv()
         assert on_connect_packet.data == "I just joined!"
 
@@ -37,7 +50,6 @@ async def test_server_handler() -> None:
 
     finally:
         await client.close()
-        await server.close()
 
 
 @pytest.mark.asyncio
@@ -48,32 +60,33 @@ async def test_max_connection() -> None:
     client1 = await webshocket.WebSocketClient(f"ws://{HOST}:{PORT}").connect()
     client1.send("Hello")
 
-    with pytest.raises(picows.picows.WSError):
-        client2 = await webshocket.WebSocketClient(f"ws://{HOST}:{PORT}").connect()
-        client2.send("Hello")
+    try:
+        with pytest.raises(picows.WSError):
+            client2 = await webshocket.WebSocketClient(f"ws://{HOST}:{PORT}").connect()
+            client2.send("Hello")
 
-    assert len(server.clients) == 1
+        assert len(server.clients) == 1
 
-    await server.close()
-    await client1.close()
+    finally:
+        await client1.close()
+        await server.close()
 
 
 @pytest.mark.asyncio
-async def test_handler_pubsub_prequisite() -> None:
+async def test_handler_pubsub_prequisite(default_server) -> None:
     @webshocket.rpc_method()
     async def get_admin(connection: webshocket.ClientConnection):
         connection.admin = True
 
-    try:
-        server = webshocket.WebSocketServer(HOST, PORT, max_connection=2)
-        server.register_rpc_method(get_admin)
-        await server.start()
+    default_server.register_rpc_method(get_admin)
 
-        client_admin = await webshocket.WebSocketClient(f"ws://{HOST}:{PORT}").connect()
-        client_normal = await webshocket.WebSocketClient(f"ws://{HOST}:{PORT}").connect()
+    client_admin = await webshocket.WebSocketClient(f"ws://{HOST}:{PORT}").connect()
+    client_normal = await webshocket.WebSocketClient(f"ws://{HOST}:{PORT}").connect()
+
+    try:
         await client_admin.send_rpc("get_admin")
 
-        server.broadcast("Admin-exclusive broadcast", predicate=webshocket.Is("admin"))
+        default_server.broadcast("Admin-exclusive broadcast", predicate=webshocket.Is("admin"))
 
         response_admin = await client_admin.recv()
         assert response_admin.data == "Admin-exclusive broadcast"
@@ -82,14 +95,13 @@ async def test_handler_pubsub_prequisite() -> None:
             _response_normal = await client_normal.recv(timeout=0.2)
 
     finally:
-        await server.close()
+        await client_admin.close()
+        await client_normal.close()
 
 
 @pytest.mark.asyncio
-async def test_wildcard_subscriptions() -> None:
+async def test_wildcard_subscriptions(default_server) -> None:
     """Verify that wildcard subscriptions (* and ?) receive matching messages."""
-
-    server = webshocket.WebSocketServer(HOST, PORT)
 
     @webshocket.rpc_method()
     async def sub(connection: webshocket.ClientConnection, channel: str):
@@ -99,23 +111,21 @@ async def test_wildcard_subscriptions() -> None:
     async def unsub(connection: webshocket.ClientConnection, channel: str):
         connection.unsubscribe(channel)
 
-    server.register_rpc_method(sub)
-    server.register_rpc_method(unsub)
+    default_server.register_rpc_method(sub)
+    default_server.register_rpc_method(unsub)
 
-    await server.start()
+    client_a = await webshocket.WebSocketClient(f"ws://{HOST}:{PORT}").connect()
+    await client_a.send_rpc("sub", channel="news.*")
+
+    client_b = await webshocket.WebSocketClient(f"ws://{HOST}:{PORT}").connect()
+    await client_b.send_rpc("sub", channel="news.tech")
+
+    client_c = await webshocket.WebSocketClient(f"ws://{HOST}:{PORT}").connect()
+    await client_c.send_rpc("sub", channel="news.sport.?")
 
     try:
-        client_a = await webshocket.WebSocketClient(f"ws://{HOST}:{PORT}").connect()
-        await client_a.send_rpc("sub", channel="news.*")
-
-        client_b = await webshocket.WebSocketClient(f"ws://{HOST}:{PORT}").connect()
-        await client_b.send_rpc("sub", channel="news.tech")
-
-        client_c = await webshocket.WebSocketClient(f"ws://{HOST}:{PORT}").connect()
-        await client_c.send_rpc("sub", channel="news.sport.?")
-
         # 1. Publish to "news.tech" -> Should go to A (wildcard) and B (exact)
-        server.publish("news.tech", "Tech News")
+        default_server.publish("news.tech", "Tech News")
 
         assert (await client_a.recv()).data == "Tech News"
         assert (await client_b.recv()).data == "Tech News"
@@ -124,7 +134,7 @@ async def test_wildcard_subscriptions() -> None:
             await client_c.recv(timeout=0.1)
 
         # 2. Publish to "news.sport.1" -> Should go to A (news.*) and C (news.sport.?)
-        server.publish("news.sport.1", "Sport News")
+        default_server.publish("news.sport.1", "Sport News")
 
         assert (await client_a.recv()).data == "Sport News"
         assert (await client_c.recv()).data == "Sport News"
@@ -137,10 +147,10 @@ async def test_wildcard_subscriptions() -> None:
         await client_d.send_rpc("sub", channel="news.market.[ABC]")
         await asyncio.sleep(0.1)
 
-        server.publish("news.market.A", "Market A")
+        default_server.publish("news.market.A", "Market A")
         assert (await client_d.recv()).data == "Market A"
 
-        server.publish("news.market.D", "Market D")
+        default_server.publish("news.market.D", "Market D")
         with pytest.raises(ReceiveTimeoutError):
             await client_d.recv(timeout=0.1)
 
@@ -157,17 +167,16 @@ async def test_wildcard_subscriptions() -> None:
             except ReceiveTimeoutError:
                 break
 
-        server.publish("news.tech", "More Tech")
+        default_server.publish("news.tech", "More Tech")
         assert (await client_b.recv()).data == "More Tech"
 
         with pytest.raises(ReceiveTimeoutError):
             await client_a.recv(timeout=0.1)
 
-        assert "news.*" not in server.handler.patterns
-        assert "news.*" not in server.handler._compiled_patterns
+        assert "news.*" not in default_server.handler.patterns
+        assert "news.*" not in default_server.handler._compiled_patterns
 
     finally:
         await client_a.close()
         await client_b.close()
         await client_c.close()
-        await server.close()

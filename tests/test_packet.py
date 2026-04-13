@@ -1,5 +1,5 @@
-import websockets
 import webshocket
+import websockets
 import pytest
 import pytest_asyncio
 
@@ -7,15 +7,15 @@ HOST, PORT = "127.0.0.1", 5000
 
 
 @pytest_asyncio.fixture
-async def rpc_server():
-    server = webshocket.WebSocketServer("localhost", 5000)
+async def server():
+    server = webshocket.WebSocketServer(HOST, PORT)
     await server.start()
     yield server
     await server.close()
 
 
 @pytest_asyncio.fixture
-async def rpc_client(rpc_server):
+async def client(server):
     client = webshocket.WebSocketClient(f"ws://{HOST}:{PORT}")
     await client.connect()
     yield client
@@ -23,121 +23,76 @@ async def rpc_client(rpc_server):
 
 
 @pytest.mark.asyncio
-async def test_simple_packet() -> None:
+async def test_simple_packet(server, client) -> None:
     payload = "This is Custom Packet"
 
-    try:
-        server = webshocket.WebSocketServer(HOST, PORT)
-        await server.start()
+    custom_packet = webshocket.Packet(
+        data=payload,
+        source=webshocket.PacketSource.CUSTOM,
+        channel=None,
+    )
 
-        custom_packet = webshocket.Packet(
-            data=payload,
-            source=webshocket.PacketSource.CUSTOM,
-            channel=None,
-        )
+    client.send(custom_packet)
 
-        client = webshocket.WebSocketClient(f"ws://{HOST}:{PORT}")
-        await client.connect()
-        client.send(custom_packet)
+    connected_client = await server.accept()
+    received_response = await connected_client.recv()
 
-        connected_client = await server.accept()
-        received_response = await connected_client.recv()
-
-        assert received_response.data == payload
-        assert received_response.source == webshocket.PacketSource.CUSTOM
-
-    finally:
-        await client.close()
-        await server.close()
+    assert received_response.data == payload
+    assert received_response.source == webshocket.PacketSource.CUSTOM
 
 
 @pytest.mark.asyncio
-async def test_packet_source() -> None:
+async def test_packet_source(server, client) -> None:
     payload = "Sport News!"
     payload2 = "Global Announcement!"
 
-    try:
-        server = webshocket.WebSocketServer(HOST, PORT)
-        await server.start()
+    connected_client = await server.accept()
+    connected_client.subscribe("sport")
 
-        client = webshocket.WebSocketClient(f"ws://{HOST}:{PORT}")
-        await client.connect()
+    assert "sport" in connected_client.subscribed_channel
 
-        connected_client = await server.accept()
-        connected_client.subscribe("sport")
+    server.publish(
+        "sport",
+        payload,
+    )
+    received_packet = await client.recv()
 
-        assert "sport" in connected_client.subscribed_channel
+    assert received_packet.data == payload
+    assert received_packet.source == webshocket.PacketSource.CHANNEL
 
-        server.publish(
-            "sport",
-            payload,
-        )
-        received_packet = await client.recv()
+    server.broadcast(payload2)
+    received_packet = await client.recv()
 
-        assert received_packet.data == payload
-        assert received_packet.source == webshocket.PacketSource.CHANNEL
-
-        server.broadcast(payload2)
-        received_packet = await client.recv()
-
-        assert received_packet.data == payload2
-        assert received_packet.source == webshocket.PacketSource.BROADCAST
-
-    finally:
-        await client.close()
-        await server.close()
+    assert received_packet.data == payload2
+    assert received_packet.source == webshocket.PacketSource.BROADCAST
 
 
 @pytest.mark.asyncio
-async def test_send_other_datatype():
-    try:
-        server = webshocket.WebSocketServer(HOST, PORT)
-        await server.start()
+async def test_send_other_datatype(server, client):
+    connected_client = await server.accept()
+    connected_client.send({"hello": "world"})
 
-        client = webshocket.WebSocketClient(f"ws://{HOST}:{PORT}")
-        await client.connect()
-
-        connected_client = await server.accept()
-        connected_client.send({"hello": "world"})
-
-        received_packet = await client.recv()
-        assert received_packet.data == {"hello": "world"}
-
-    finally:
-        await client.close()
-        await server.close()
+    received_packet = await client.recv()
+    assert received_packet.data == {"hello": "world"}
 
 
 @pytest.mark.asyncio
-async def test_send_unserializeable_data():
+async def test_send_unserializeable_data(server, client):
     data_to_send = [
         lambda: "Function type",
         webshocket.ClientConnection,
     ]
 
-    try:
-        server = webshocket.WebSocketServer(HOST, PORT)
-        await server.start()
-
-        client = webshocket.WebSocketClient(f"ws://{HOST}:{PORT}")
-        await client.connect()
-
-        for item in data_to_send:
-            with pytest.raises(TypeError):
-                client.send(item)
-
-    finally:
-        await client.close()
-        await server.close()
+    for item in data_to_send:
+        with pytest.raises(TypeError):
+            client.send(item)
 
 
 @pytest.mark.asyncio
-async def test_unknown_packet():
-    try:
-        server = webshocket.WebSocketServer(HOST, PORT)
-        await server.start()
+async def test_unknown_packet(server):
+    client = await websockets.connect(f"ws://{HOST}:{PORT}")
 
-        client = await websockets.connect(f"ws://{HOST}:{PORT}")
+    try:
         connected_client = await server.accept()
         await client.send("Raw String.")
 
@@ -148,4 +103,3 @@ async def test_unknown_packet():
 
     finally:
         await client.close()
-        await server.close()

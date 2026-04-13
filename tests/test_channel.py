@@ -1,26 +1,33 @@
 import webshocket
 import pytest
+import pytest_asyncio
 import asyncio
-import os
 
-(HOST, PORT) = ("127.0.0.1", 5000)
+HOST, PORT = "127.0.0.1", 5000
 
-if os.name == "nt":
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+@pytest_asyncio.fixture
+async def server():
+    server = webshocket.WebSocketServer(HOST, PORT)
+    await server.start()
+    yield server
+    await server.close()
+
+
+@pytest_asyncio.fixture
+async def client(server):
+    client = webshocket.WebSocketClient(f"ws://{HOST}:{PORT}")
+    await client.connect()
+    yield client
+    await client.close()
 
 
 @pytest.mark.asyncio
-async def test_simple_subscription() -> None:
-    server = webshocket.WebSocketServer(HOST, PORT)
-    await server.start()
+async def test_simple_subscription(server, client) -> None:
+    client_two = webshocket.WebSocketClient(f"ws://{HOST}:{PORT}")
+    await client_two.connect()
 
     try:
-        client_one = webshocket.WebSocketClient(f"ws://{HOST}:{PORT}")
-        await client_one.connect()
-
-        client_two = webshocket.WebSocketClient(f"ws://{HOST}:{PORT}")
-        await client_two.connect()
-
         connected_client_one = await server.accept()
         connected_client_two = await server.accept()
 
@@ -34,7 +41,7 @@ async def test_simple_subscription() -> None:
             "sports",
             "Sports News!",
         )
-        received_response = await client_one.recv()
+        received_response = await client.recv()
         assert received_response.data == "Sports News!"
         assert received_response.source == webshocket.PacketSource.CHANNEL
 
@@ -47,16 +54,11 @@ async def test_simple_subscription() -> None:
         assert received_response.source == webshocket.PacketSource.CHANNEL
 
     finally:
-        await client_one.close()
         await client_two.close()
-        await server.close()
 
 
 @pytest.mark.asyncio
-async def test_broadcast():
-    server = webshocket.WebSocketServer(HOST, PORT)
-    await server.start()
-
+async def test_broadcast(server):
     number_of_clients = 5
 
     clients = [webshocket.WebSocketClient(f"ws://{HOST}:{PORT}") for _ in range(number_of_clients)]
@@ -85,49 +87,34 @@ async def test_broadcast():
             *close_tasks,
             return_exceptions=True,
         )
-        await server.close()
 
 
 @pytest.mark.asyncio
-async def test_receive_timeout() -> None:
-    server = webshocket.WebSocketServer(HOST, PORT)
-    await server.start()
+async def test_receive_timeout(server, client) -> None:
+    connected_client = await server.accept()
+    connected_client.subscribe("sports")
 
-    try:
-        client = webshocket.WebSocketClient(f"ws://{HOST}:{PORT}")
-        await client.connect()
+    server.publish(
+        "news",
+        "This is News update!",
+    )
 
-        connected_client = await server.accept()
-        connected_client.subscribe("sports")
-
-        server.publish(
-            "news",
-            "This is News update!",
+    with pytest.raises(TimeoutError):
+        await asyncio.wait_for(
+            client.recv(),
+            timeout=1,
         )
 
-        with pytest.raises(TimeoutError):
-            await asyncio.wait_for(
-                client.recv(),
-                timeout=1,
-            )
-
-    finally:
-        await client.close()
-        await server.close()
-
 
 @pytest.mark.asyncio
-async def test_multiple_publish() -> None:
-    server = webshocket.WebSocketServer(HOST, PORT)
-    await server.start()
+async def test_multiple_publish(server) -> None:
+    client_sport = webshocket.WebSocketClient(f"ws://{HOST}:{PORT}")
+    await client_sport.connect()
+
+    client_news = webshocket.WebSocketClient(f"ws://{HOST}:{PORT}")
+    await client_news.connect()
 
     try:
-        client_sport = webshocket.WebSocketClient(f"ws://{HOST}:{PORT}")
-        await client_sport.connect()
-
-        client_news = webshocket.WebSocketClient(f"ws://{HOST}:{PORT}")
-        await client_news.connect()
-
         connected_client1 = await server.accept()
         connected_client1.subscribe("sports")
         connected_client2 = await server.accept()
@@ -144,50 +131,28 @@ async def test_multiple_publish() -> None:
     finally:
         await client_sport.close()
         await client_news.close()
-        await server.close()
 
 
 @pytest.mark.asyncio
-async def test_channel_auto_delete() -> None:
-    server = webshocket.WebSocketServer(HOST, PORT)
-    await server.start()
+async def test_channel_auto_delete(server, client) -> None:
+    connected_client = await server.accept()
+    connected_client.subscribe("sports")
 
-    try:
-        client = webshocket.WebSocketClient(f"ws://{HOST}:{PORT}")
-        await client.connect()
+    assert len(server.channels) == 1
 
-        connected_client = await server.accept()
-        connected_client.subscribe("sports")
+    connected_client.unsubscribe("sports")
 
-        assert len(server.channels) == 1
-
-        connected_client.unsubscribe("sports")
-
-        assert len(server.channels) == 0
-
-    finally:
-        await client.close()
-        await server.close()
+    assert len(server.channels) == 0
 
 
 @pytest.mark.asyncio
-async def test_remove_on_disconnect() -> None:
-    server = webshocket.WebSocketServer(HOST, PORT)
-    await server.start()
+async def test_remove_on_disconnect(server, client) -> None:
+    connected_client = await server.accept()
+    connected_client.subscribe("sports")
 
-    try:
-        client = webshocket.WebSocketClient(f"ws://{HOST}:{PORT}")
-        await client.connect()
+    assert len(server.channels) == 1
 
-        connected_client = await server.accept()
-        connected_client.subscribe("sports")
+    await client.close()
+    await asyncio.sleep(0.2)
 
-        assert len(server.channels) == 1
-
-        await client.close()
-        await asyncio.sleep(0.2)
-
-        assert len(server.channels) == 0
-
-    finally:
-        await server.close()
+    assert len(server.channels) == 0
