@@ -18,3 +18,4 @@ pyproject.toml.backup
 *.ini
 GEMINI.md
 /tests/benchmarks
+.coverage
