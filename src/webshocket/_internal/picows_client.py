@@ -8,6 +8,7 @@ from functools import partial
 from ..packets import Packet
 from ..typing import DEFAULT_WEBSHOCKET_SUBPROTOCOL
 from ..exceptions import ConnectionFailedError, ConnectionClosedError
+from ..constant import DEFAULT_CHUNK_SIZE
 
 ON_RECEIVE_TYPE = Callable[[Packet], Awaitable[None]]
 
@@ -93,7 +94,7 @@ class client:
 
         self._listener_instance = listener_instance
 
-    def send(self, data: bytes, chunk_size: int = 1024 * 64) -> None:
+    def send(self, data: bytes, chunk_size: int = DEFAULT_CHUNK_SIZE) -> None:
         if not self._protocol:
             raise ConnectionFailedError("Client is not connected to the server.")
 
@@ -130,8 +131,9 @@ class client:
             self._protocol.send_close(WSCloseCode.OK, b"Client is closing the connection.")
             self._protocol.disconnect()
             self._protocol = None
+            return True
 
-        return bool(self._protocol)
+        return False
 
     async def __aiter__(self):
         while True:

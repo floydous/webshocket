@@ -16,9 +16,11 @@ class ClientConnection(Generic[TState]):
         "_packet_queue",
         "_protocol",
         "_handler",
+        "_subscribed_channels",
         "client_type",
         "connection_state",
         "session_state",
+        "max_subscribed_channels",
         "uid",
         "logger",
     )
@@ -27,6 +29,7 @@ class ClientConnection(Generic[TState]):
     client_type: ClientType
     session_state: TState
     connection_state: ConnectionState
+    max_subscribed_channels: int
     uid: UUID
     logger: Any
 
@@ -36,6 +39,7 @@ class ClientConnection(Generic[TState]):
         handler: WebSocketHandler,
         packet_qsize: int = 128,
         client_type: ClientType = ClientType.GENERIC,
+        max_subscribed_channels: int = 5,
     ) -> None: ...
     @property
     def subscribed_channel(self) -> set[str]: ...
