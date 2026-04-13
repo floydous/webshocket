@@ -4,7 +4,6 @@ import re
 
 from typing import TYPE_CHECKING, Optional, Set, Dict, Iterable, Union, TypeVar, Generic, cast
 from collections import defaultdict
-from functools import lru_cache
 
 from .packets import Packet, PacketSource
 from .typing import RPC_Function, RPC_Predicate, RPCMethod, SessionState
@@ -29,7 +28,7 @@ class WebSocketHandler(Generic[TState]):
         channels (Dict[str, Set[ClientConnection]]): A dictionary mapping channel names to sets of subscribed clients.
     """
 
-    __slots__ = ("clients", "channels", "patterns", "_compiled_patterns", "_rpc_methods")
+    __slots__ = ("clients", "channels", "patterns", "_compiled_patterns", "_pattern_cache", "_rpc_methods")
 
     def __init__(self) -> None:
         """Initializes the WebSocketHandler."""
@@ -37,6 +36,7 @@ class WebSocketHandler(Generic[TState]):
         self.channels: Dict[str, Set[ClientConnection]] = defaultdict(set)
         self.patterns: dict[str, set[ClientConnection]] = defaultdict(set)
         self._compiled_patterns: dict[str, re.Pattern] = {}
+        self._pattern_cache: dict[str, list[str]] = {}
 
         self._rpc_methods: Dict[str, RPCMethod] = dict()
 
@@ -51,6 +51,7 @@ class WebSocketHandler(Generic[TState]):
                 func=cast(RPC_Function, func),
                 rate_limit=getattr(func, "_rate_limit", None),
                 restricted=getattr(func, "_restricted", None),
+                is_stream=getattr(func, "_is_stream", False),
             )
 
     def register_rpc_method(self, func: RPC_Function, alias_name: Optional[str] = None) -> None:
@@ -124,7 +125,7 @@ class WebSocketHandler(Generic[TState]):
         if not self.clients:
             return
 
-        exclude_set = set(exclude if exclude is not None else tuple())
+        exclude_set = set(exclude) if exclude else set()
 
         if not isinstance(data, Packet):
             data = Packet(data=data, source=PacketSource.BROADCAST, **kwargs)
@@ -168,11 +169,11 @@ class WebSocketHandler(Generic[TState]):
         for channel in channels:
             packet = Packet(data=data, source=PacketSource.CHANNEL, channel=channel) if not isinstance(data, Packet) else data
 
-            recipients = self.channels.get(channel, set()).copy()
-            matching_patterns = self._get_matching_patterns(channel)
+            recipients: set[ClientConnection] = set()
+            recipients.update(self.channels.get(channel, ()))
 
-            for pattern in matching_patterns:
-                recipients.update(self.patterns.get(pattern, set()))
+            for pattern in self._get_matching_patterns(channel):
+                recipients.update(self.patterns.get(pattern, ()))
 
             for client in recipients:
                 if client in exclude_set:
@@ -197,11 +198,13 @@ class WebSocketHandler(Generic[TState]):
                 if channel_name not in self._compiled_patterns:
                     re_compiled = re.compile(fnmatch.translate(channel_name))
                     self._compiled_patterns[channel_name] = re_compiled
+                    self._pattern_cache.clear()
 
                 self.patterns[channel_name].add(client)
-                continue
+            else:
+                self.channels[channel_name].add(client)
 
-            self.channels[channel_name].add(client)
+            client._subscribed_channels.add(channel_name)
 
     def unsubscribe(self, client: "ClientConnection", channel: str | Iterable[str]) -> None:
         """Unsubscribes a client from one or more channels.
@@ -224,13 +227,18 @@ class WebSocketHandler(Generic[TState]):
 
                 if not self.patterns[channel_name]:
                     del self.patterns[channel_name]
-                    # pop with default to prevent KeyError
                     self._compiled_patterns.pop(channel_name, None)
-                    self._get_matching_patterns.cache_clear()
+                    self._pattern_cache.clear()
 
-    @lru_cache(maxsize=128)
+            client._subscribed_channels.discard(channel_name)
+
     def _get_matching_patterns(self, channel: str) -> list[str]:
-        return [pattern_str for pattern_str, regex in self._compiled_patterns.items() if regex.match(channel)]
+        if channel in self._pattern_cache:
+            return self._pattern_cache[channel]
+
+        result = [p for p, regex in self._compiled_patterns.items() if regex.match(channel)]
+        self._pattern_cache[channel] = result
+        return result
 
 
 class DefaultWebSocketHandler(WebSocketHandler):
