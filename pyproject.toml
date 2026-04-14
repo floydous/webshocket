@@ -35,6 +35,9 @@ dev = [
     "pytest-asyncio",
     "pytest-cov",
 
+    # Testing Compability
+    "websockets",
+
     # Formatter and Task Runner
     "ruff",
     "poethepoet",
