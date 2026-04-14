@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Webshocket - Cross-Language Client</title>
+</head>
+<body>
+    <h2>Webshocket Cross-Language Demo</h2>
+    <pre id="output"></pre>
+
+    <script>
+        /*
+         * Feature 7: Cross-Language Compatibility (JavaScript Client)
+         * =============================================================
+         * A standard browser WebSocket client calling Webshocket RPC methods.
+         * No special library required - just JSON over WebSocket.
+         *
+         * Usage: Start the Python server first, then open this file in a browser.
+         */
+
+        const output = document.getElementById("output");
+        const log = (msg) => { output.textContent += msg + "\n"; };
+
+        const socket = new WebSocket("ws://localhost:5000");
+
+        socket.onopen = () => {
+            log("[Connected] Sending RPC requests...\n");
+
+            // Call 'add' via the standard RPC protocol
+            const addRequest = {
+                rpc: {
+                    type: "request",
+                    method: "add",
+                    args: [10, 20],
+                    kwargs: {},
+                },
+                source: 5,  // PacketSource.RPC = 5
+            };
+            socket.send(JSON.stringify(addRequest));
+
+            // Call 'greet'
+            setTimeout(() => {
+                const greetRequest = {
+                    rpc: {
+                        type: "request",
+                        method: "greet",
+                        args: ["JavaScript"],
+                        kwargs: {},
+                    },
+                    source: 5,
+                };
+                socket.send(JSON.stringify(greetRequest));
+            }, 500);
+        };
+
+        socket.onmessage = async (event) => {
+            const data = event.data instanceof Blob
+                ? await event.data.text()
+                : event.data;
+
+            try {
+                const packet = JSON.parse(data);
+                if (packet.rpc && packet.rpc.response !== undefined) {
+                    log(`[RPC Response] ${packet.rpc.method}: ${JSON.stringify(packet.rpc.response)}`);
+                } else {
+                    log(`[Message] ${JSON.stringify(packet)}`);
+                }
+            } catch {
+                log(`[Raw] ${data}`);
+            }
+        };
+
+        socket.onclose = () => log("\n[Disconnected]");
+        socket.onerror = (e) => log(`[Error] ${e.message || "Connection failed"}`);
+    </script>
+</body>
+</html>
