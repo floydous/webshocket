@@ -2,6 +2,34 @@
 
 All notable changes to the `webshocket` library will be documented in this file.
 
+## [0.5.1] - 2026-04-14
+
+### Added
+
+- **Streaming RPC**: Server-side RPC methods can now `yield` values as async generators. The client iterates over streamed packets in real-time using `client.stream_rpc()`, enabling use cases like AI token streaming, live data feeds, and progressive result delivery.
+- **Subscription Limits**: Added a configurable `max_subscribed_channels` parameter to `ClientConnection`, allowing servers to cap the number of channels a single client can subscribe to.
+- **Wildcard Subscriptions**: Pub/Sub channels now support glob patterns (`*`, `?`, `[]`) for topic matching. Clients can subscribe to patterns like `news.*` or `alerts.region.?` to receive messages across multiple matching channels.
+- **Pattern Cache**: Replaced `lru_cache` with a manual `_pattern_cache` dictionary on `WebSocketHandler` for channel pattern matching, avoiding memory leaks from unbounded caching.
+- **Comprehensive Test Suite**: Added 50+ new tests distributed across feature-specific files:
+  - `test_utils.py` — `parse_duration` edge cases (empty string, invalid unit).
+  - `test_predicate.py` — `__repr__` methods on `Has`, `Is`, `IsEqual`, `Any`, `All`.
+  - `test_connection.py` — `recv` disconnect guard, JSON decode fallback, timeout, subscribe limits, dict-style access, `__repr__`, `__eq__`/`__hash__`.
+  - `test_internal.py` — Picows server pending payload flush, double-serve rejection, client send-before-connect, extra headers.
+  - `test_stream.py` — Streaming RPC end-to-end, mid-stream failure, concurrent streams, client-initiated abort.
+  - Additions to `test_handler.py`, `test_rpc.py`, `test_rate_limit.py`, `test_context_manager.py`, `test_packet.py`.
+
+### Changed
+
+- **`RPCResponse` Packet**: Added `is_stream` and `is_end` boolean flags to `RPCResponse` to support the streaming protocol. `is_stream=True` marks a response as part of a streaming sequence; `is_end=True` signals the final packet.
+- **`RPCMethod` Metadata**: The RPC decorator now detects async generator functions and tags them as streaming methods via `RPCMethod.is_stream`.
+- **`rpc.py` Decorator Validation**: Both `@rpc_method()` and `@rate_limit()` now raise `TypeError` immediately if applied to a non-async function, preventing silent runtime failures.
+
+### Fixed
+
+- **Streaming Error Propagation**: Fixed a protocol bug where rate-limit and access-denied errors in streaming RPCs were not flagged with `is_stream=True` and `is_end=True`, causing client-side `stream_rpc()` iterators to hang indefinitely waiting for an end signal.
+- **`stream_rpc` Rate Limit**: `stream_rpc()` now correctly raises `RateLimitError` locally when `raise_on_rate_limit=True` is set, matching the behavior of `send_rpc()`.
+- **Port Collision in Tests**: Shifted integration test ports to higher ranges (5003-5050) to avoid `OSError: [Errno 10048]` on Windows caused by TCP `TIME_WAIT` state from prior test runs.
+
 ## [0.5.0] - 2026-02-11
 
 ### Changed

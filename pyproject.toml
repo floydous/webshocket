@@ -56,7 +56,7 @@ executor.type = "uv"
 
 [tool.poe.tasks]
 test = "pytest -v -r f"
-cov = "pytest --cov=webshocket --cov-report=term-missing -v"
+cov = "pytest --cov=webshocket --cov-report=xml --cov-report=term-missing -v"
 lint = "ruff check ./src/webshocket"
 format = "ruff format --line-length 135 ./src/webshocket"
 docs = "sphinx-build -b html docs/source/ docs/build/"
