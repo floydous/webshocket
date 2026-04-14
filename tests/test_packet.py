@@ -103,3 +103,17 @@ async def test_unknown_packet(server):
 
     finally:
         await client.close()
+
+
+# ---------------------------------------------------------------------------
+# websocket.py:108 — _to_packet with non-bytes for FRAMEWORK
+# ---------------------------------------------------------------------------
+
+
+def test_to_packet_non_bytes_framework():
+    """_to_packet with a string for FRAMEWORK falls through to UNKNOWN source."""
+    from webshocket.websocket import server as WebSocketServerClass
+    from webshocket.enum import ClientType
+
+    pkt = WebSocketServerClass._to_packet("not-bytes-data", ClientType.FRAMEWORK)
+    assert pkt.source == webshocket.PacketSource.UNKNOWN

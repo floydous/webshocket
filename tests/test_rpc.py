@@ -314,7 +314,34 @@ async def test_manual_rpc_add_wo_handler():
     await rpc_server.close()
 
 
-# if __name__ == "__main__":
-#     import asyncio
+# ---------------------------------------------------------------------------
+# rpc.py:44, 96 — decorators reject synchronous functions
+# typing.py:43 — RPCMethod.__repr__
+# ---------------------------------------------------------------------------
 
-#     asyncio.run(test_manual_rpc_add_wo_handler())
+
+def test_rpc_method_sync_raises():
+    with pytest.raises(TypeError, match="must be an async function"):
+
+        @rpc_method()
+        def sync_func(self, connection):
+            pass
+
+
+def test_rate_limit_sync_raises():
+    with pytest.raises(TypeError, match="must be an async function"):
+
+        @rate_limit(limit=1, period="1s")
+        def sync_func(self, connection):
+            pass
+
+
+def test_rpc_method_repr():
+    from webshocket.typing import RPCMethod
+
+    async def dummy(conn):
+        pass
+
+    m = RPCMethod(func=dummy)
+    assert "RPCMethod" in repr(m)
+    assert "dummy" in repr(m)
