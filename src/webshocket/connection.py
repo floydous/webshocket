@@ -206,7 +206,7 @@ class ClientConnection(Generic[TState]):
         #     raise TypeError("Cannot use manual recv() when an on_receive callback is active.")
         packet: Packet
 
-        if not self._protocol or self.connection_state is ConnectionState.DISCONNECTED:
+        if not self._protocol or self.connection_state != ConnectionState.CONNECTED:
             raise ConnectionClosedError("Cannot receive data: client is not connected.")
 
         try:

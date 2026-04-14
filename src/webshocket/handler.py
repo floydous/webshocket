@@ -46,7 +46,6 @@ class WebSocketHandler(Generic[TState]):
             if not (callable(func) and getattr(func, "_is_rpc_method", False)):
                 continue
 
-            # self._rpc_methods[rpc_alias_name] = cast(RPC_Function, func)
             self._rpc_methods[rpc_alias_name] = RPCMethod(
                 func=cast(RPC_Function, func),
                 rate_limit=getattr(func, "_rate_limit", None),
