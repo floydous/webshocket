@@ -157,6 +157,7 @@ class server(Generic[H]):
                         call_id=call_id,
                         response=f"RPC method '{method_name}' not found.",
                         error=RPCErrorCode.METHOD_NOT_FOUND,
+                        is_end=True,
                     ),
                 )
                 response_sent = True
@@ -166,6 +167,7 @@ class server(Generic[H]):
                 access_error = self._check_restricted_access(connection, restriction, call_id, method_name)
 
                 if access_error:
+                    access_error.is_stream = rpc_function.is_stream
                     connection._send_rpc_response(access_error)
                     response_sent = True
                     return
@@ -174,6 +176,7 @@ class server(Generic[H]):
                 limit_error = self._check_rate_limit(connection, rpc_function.func, rate_limit, call_id, method_name)
 
                 if limit_error:
+                    limit_error.is_stream = rpc_function.is_stream
                     connection._send_rpc_response(limit_error)
                     response_sent = True
                     return
@@ -244,6 +247,7 @@ class server(Generic[H]):
                 call_id=call_id,
                 response=f"Access denied for RPC method '{method_name}'.",
                 error=RPCErrorCode.ACCESS_DENIED,
+                is_end=True,
             )
 
         return None
@@ -278,6 +282,7 @@ class server(Generic[H]):
                 call_id=call_id,
                 response=f"Rate limit exceeded for RPC method '{method_name}'.",
                 error=RPCErrorCode.RATE_LIMIT_EXCEEDED,
+                is_end=True,
             )
 
         connection.session_state[storageKey]["count"] += 1
@@ -597,6 +602,7 @@ class client:
         if (self._listener_task and not self._listener_task.done()) or self._client:
             await self.close()
 
+        print("[!] _connect_once called")
         self.state = ConnectionState.CONNECTING
 
         self._client = picows_client.client(
@@ -675,7 +681,9 @@ class client:
 
         self._client.send(serialize(packet))
 
-    async def stream_rpc(self, method_name: str, *args, **kwargs) -> AsyncGenerator[Packet[RPCResponse], None]:
+    async def stream_rpc(
+        self, method_name: str, *args, raise_on_rate_limit: bool = True, **kwargs
+    ) -> AsyncGenerator[Packet[RPCResponse], None]:
         if (not self._client) or self.state != ConnectionState.CONNECTED:
             raise WebSocketError("Cannot send RPC: client is not connected.")
 
@@ -693,6 +701,9 @@ class client:
 
                 if isinstance(packet.rpc, RPCResponse):
                     if packet.rpc.error is not None:
+                        if packet.rpc.error == RPCErrorCode.RATE_LIMIT_EXCEEDED and raise_on_rate_limit:
+                            raise RateLimitError(f"Rate limit exceeded for method '{method_name}'")
+
                         yield packet
                         break
 
@@ -795,7 +806,7 @@ class client:
 
     async def __aenter__(self):
         """Enters the asynchronous context manager, connecting the client if not already connected."""
-        if not self._client:
+        if not self._client or self.state != ConnectionState.CONNECTED:
             await self.connect()
 
         return self
