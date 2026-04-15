@@ -1,11 +1,11 @@
-import msgspec
-import pytest_asyncio
-import pytest
-
-import webshocket
-import websockets
 import json
 
+import msgspec
+import pytest
+import pytest_asyncio
+import websockets
+
+import webshocket
 from webshocket.enum import PacketSource
 
 

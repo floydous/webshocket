@@ -1,10 +1,10 @@
-import pytest_asyncio
 import pytest
+import pytest_asyncio
 
 import webshocket
-from webshocket.rpc import rpc_method, rate_limit
-from webshocket.exceptions import RPCError
+from webshocket import rate_limit, rpc_method
 from webshocket.enum import PacketSource, RPCErrorCode
+from webshocket.exceptions import RPCError
 from webshocket.packets import (
     RPCResponse,
 )
@@ -79,14 +79,12 @@ async def test_rpc_echo_method(
             "Hello RPC World",
         )
 
-        assert response_packet.source == PacketSource.RPC
         assert isinstance(
-            response_packet.rpc,
+            response_packet,
             RPCResponse,
         )
-        assert response_packet.rpc.response == "Hello RPC World"
-        assert response_packet.data == "Hello RPC World"
-        assert response_packet.rpc.error is None
+        assert response_packet.response == "Hello RPC World"
+        assert response_packet.error is None
 
 
 @pytest.mark.asyncio
@@ -96,10 +94,9 @@ async def test_rpc_add_numbers(
     async with webshocket.WebSocketClient("ws://localhost:5000") as client:
         response_packet = await client.send_rpc("add_numbers", 10, 20)
 
-        assert response_packet.source == PacketSource.RPC
-        assert isinstance(response_packet.rpc, RPCResponse)
-        assert response_packet.rpc.error == RPCErrorCode.METHOD_NOT_FOUND
-        assert "not found" in response_packet.data
+        assert isinstance(response_packet, RPCResponse)
+        assert response_packet.error == RPCErrorCode.METHOD_NOT_FOUND
+        assert "not found" in response_packet.response
 
 
 @pytest.mark.asyncio
@@ -109,14 +106,13 @@ async def test_rpc_method_alias(
     async with webshocket.WebSocketClient("ws://localhost:5000") as client:
         response_packet = await client.send_rpc("add", 5, 7)
 
-        assert response_packet.source == PacketSource.RPC
         assert isinstance(
-            response_packet.rpc,
+            response_packet,
             RPCResponse,
         )
-        assert response_packet.rpc.error is None
-        assert response_packet.rpc.response == 12
-        assert response_packet.data == 12
+        assert response_packet.error is None
+        assert response_packet.response == 12
+        assert response_packet.response == 12
 
 
 @pytest.mark.asyncio
@@ -127,13 +123,12 @@ async def test_rpc_method_not_found(rpc_server):
             "test",
         )
 
-        assert response_packet.source == PacketSource.RPC
         assert isinstance(
-            response_packet.rpc,
+            response_packet,
             RPCResponse,
         )
-        assert response_packet.rpc.error == RPCErrorCode.METHOD_NOT_FOUND
-        assert "not found" in response_packet.data
+        assert response_packet.error == RPCErrorCode.METHOD_NOT_FOUND
+        assert "not found" in response_packet.response
 
 
 @pytest.mark.asyncio
@@ -145,13 +140,12 @@ async def test_rpc_method_not_exposed(rpc_server):
             "test",
         )
 
-        assert response_packet.source == PacketSource.RPC
         assert isinstance(
-            response_packet.rpc,
+            response_packet,
             RPCResponse,
         )
-        assert response_packet.rpc.error == RPCErrorCode.METHOD_NOT_FOUND
-        assert "not found" in response_packet.data
+        assert response_packet.error == RPCErrorCode.METHOD_NOT_FOUND
+        assert "not found" in response_packet.response
 
 
 @pytest.mark.asyncio
@@ -163,14 +157,13 @@ async def test_rpc_method_raises_rpc_error(rpc_server):
             error_msg,
         )
 
-        assert response_packet.source == PacketSource.RPC
         assert isinstance(
-            response_packet.rpc,
+            response_packet,
             RPCResponse,
         )
-        # assert response_packet.rpc.response is None
-        assert response_packet.rpc.error == RPCErrorCode.APPLICATION_ERROR
-        assert response_packet.data == error_msg
+        # assert response_packet.response is None
+        assert response_packet.error == RPCErrorCode.APPLICATION_ERROR
+        assert response_packet.response == error_msg
 
 
 @pytest.mark.asyncio
@@ -180,8 +173,6 @@ async def test_on_receive_handles_non_rpc_packet(rpc_server):
         client.send(test_message)
         response_packet = await client.recv()
 
-        assert response_packet.source == PacketSource.CUSTOM
-        assert response_packet.rpc is None
         assert response_packet.data == f"Non-RPC Echo: {test_message}"
 
 
@@ -194,10 +185,10 @@ async def test_rpc_error_code(
         response = await client.send_rpc("non_rpc_method")
 
         assert isinstance(
-            response.rpc,
+            response,
             RPCResponse,
         )
-        assert response.rpc.error == RPCErrorCode.METHOD_NOT_FOUND
+        assert response.error == RPCErrorCode.METHOD_NOT_FOUND
         # ---------------------------------------------------------------------------------
 
         response = await client.send_rpc(
@@ -206,21 +197,21 @@ async def test_rpc_error_code(
         )
 
         assert isinstance(
-            response.rpc,
+            response,
             RPCResponse,
         )
-        assert response.rpc.error == RPCErrorCode.APPLICATION_ERROR
-        assert response.rpc.response == "This is a custom RPC error."
+        assert response.error == RPCErrorCode.APPLICATION_ERROR
+        assert response.response == "This is a custom RPC error."
         # ---------------------------------------------------------------------------------
 
         response = await client.send_rpc("raise_generic_error")
 
         assert isinstance(
-            response.rpc,
+            response,
             RPCResponse,
         )
-        assert response.rpc.error == RPCErrorCode.INTERNAL_SERVER_ERROR
-        assert "Server error (ValueError): This is a generic value error." in response.data
+        assert response.error == RPCErrorCode.INTERNAL_SERVER_ERROR
+        assert "Server error (ValueError): This is a generic value error." in response.response
 
         # ---------------------------------------------------------------------------------
 
@@ -232,45 +223,45 @@ async def test_rpc_error_code(
         )
 
         assert isinstance(
-            response.rpc,
+            response,
             RPCResponse,
         )
-        assert response.rpc.error == RPCErrorCode.INVALID_PARAMS
+        assert response.error == RPCErrorCode.INVALID_PARAMS
 
         # Expected 1 argument, no argument given
         response = await client.send_rpc("raise_invalid_params")
 
         assert isinstance(
-            response.rpc,
+            response,
             RPCResponse,
         )
-        assert response.rpc.error == RPCErrorCode.INVALID_PARAMS
+        assert response.error == RPCErrorCode.INVALID_PARAMS
 
         # ---------------------------------------------------------------------------------
         response = await client.send_rpc("raise_rate_limit_exceeded")
 
         assert isinstance(
-            response.rpc,
+            response,
             RPCResponse,
         )
-        assert response.rpc.error == RPCErrorCode.RATE_LIMIT_EXCEEDED
+        assert response.error == RPCErrorCode.RATE_LIMIT_EXCEEDED
 
         # ---------------------------------------------------------------------------------
 
         response = await client.send_rpc("test_requires")
 
         assert isinstance(
-            response.rpc,
+            response,
             RPCResponse,
         )
 
-        assert response.rpc.error == RPCErrorCode.ACCESS_DENIED
+        assert response.error == RPCErrorCode.ACCESS_DENIED
 
         response = await client.send_rpc("get_admin")
-        assert response.data is None
+        assert response.response is None
 
         response = await client.send_rpc("test_requires")
-        assert response.data == "This is secret data"
+        assert response.response == "This is secret data"
 
 
 @pytest.mark.asyncio
@@ -283,7 +274,7 @@ async def test_manual_rpc_add_w_handler(rpc_server: webshocket.WebSocketServer):
 
     async with webshocket.WebSocketClient("ws://localhost:5000") as client:
         response = await client.send_rpc("say_my_name")
-        assert response.data == "Heisenberg"
+        assert response.response == "Heisenberg"
 
 
 @pytest.mark.asyncio
@@ -300,7 +291,7 @@ async def test_manual_rpc_add_wo_handler():
     async with webshocket.WebSocketClient("ws://localhost:5000") as client:
         connected_client = await rpc_server.accept()
         response = await client.send_rpc("say_my_name")
-        assert response.data == "Heisenberg"
+        assert response.response == "Heisenberg"
 
         connected_client.send("Hello")
         response = await client.recv()

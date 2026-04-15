@@ -1,7 +1,8 @@
-import webshocket
-import websockets
 import pytest
 import pytest_asyncio
+import websockets
+
+import webshocket
 
 HOST, PORT = "127.0.0.1", 5000
 
@@ -112,8 +113,8 @@ async def test_unknown_packet(server):
 
 def test_to_packet_non_bytes_framework():
     """_to_packet with a string for FRAMEWORK falls through to UNKNOWN source."""
-    from webshocket.websocket import server as WebSocketServerClass
     from webshocket.enum import ClientType
+    from webshocket.websocket import server as WebSocketServerClass
 
     pkt = WebSocketServerClass._to_packet("not-bytes-data", ClientType.FRAMEWORK)
     assert pkt.source == webshocket.PacketSource.UNKNOWN

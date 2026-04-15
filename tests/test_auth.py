@@ -1,7 +1,9 @@
-import pytest
-from webshocket import WebSocketHandler, ClientConnection, rpc_method
-from webshocket.predicate import Has, Is, IsEqual, Any, All
 from typing import cast
+
+import pytest
+
+from webshocket import ClientConnection, WebSocketHandler, rpc_method
+from webshocket.predicate import All, Any, Has, Is, IsEqual
 
 
 class MockConnection:
@@ -13,7 +15,7 @@ class MockConnection:
 
 def test_helpers():
     conn = MockConnection({"admin": True, "role": "editor", "active": False})
-    conn = cast(ClientConnection, conn)  # type: ignore
+    conn = cast("ClientConnection", conn)  # type: ignore
 
     # IsEqual checks value
     assert IsEqual("admin", True)(conn)
@@ -53,8 +55,8 @@ class MyHandler(WebSocketHandler):
 async def test_rpc_requires_check():
     handler = MyHandler()
 
-    assert getattr(handler.admin_only, "_is_rpc_method")
-    requirement = getattr(handler.admin_only, "_restricted")
+    assert handler.admin_only._is_rpc_method
+    requirement = handler.admin_only._restricted
 
     conn_allowed = MockConnection({"admin": True})
     conn_denied = MockConnection({"admin": False})

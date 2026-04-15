@@ -1,8 +1,10 @@
-import pytest
-import pytest_asyncio
 import asyncio
 import json
 import uuid
+
+import pytest
+import pytest_asyncio
+
 import webshocket
 from webshocket import Packet
 
@@ -48,8 +50,7 @@ async def state_server():
 async def test_session_state_set_and_get(
     state_server,
 ):
-    """
-    Test Case 1: Verifies that state can be set and retrieved on a
+    """Test Case 1: Verifies that state can be set and retrieved on a
     single connection using both attribute and dictionary access.
     """
     (
@@ -73,8 +74,7 @@ async def test_session_state_set_and_get(
 async def test_session_state_is_isolated_per_client(
     state_server,
 ):
-    """
-    Verifies that session_state is isolated between two clients,
+    """Verifies that session_state is isolated between two clients,
     using a robust self-identification protocol.
     """
     (server, uri) = state_server
@@ -108,8 +108,7 @@ async def test_session_state_is_isolated_per_client(
 async def test_session_state_is_cleared_on_disconnect(
     state_server,
 ):
-    """
-    Test Case 3: Verifies that a client's state is gone after it disconnects.
+    """Test Case 3: Verifies that a client's state is gone after it disconnects.
     """
     (
         server,
@@ -123,8 +122,8 @@ async def test_session_state_is_cleared_on_disconnect(
                     "command": "set_state",
                     "key": "status",
                     "value": "active",
-                }
-            )
+                },
+            ),
         )
         await client.recv()
         assert len(server.handler.clients) == 1

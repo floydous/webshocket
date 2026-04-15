@@ -1,11 +1,11 @@
 """Tests for webshocket.connection — edge cases on ClientConnection."""
 
+
 import pytest
-import asyncio
 
 from webshocket.connection import ClientConnection
-from webshocket.handler import WebSocketHandler, DefaultWebSocketHandler
-from webshocket.enum import ConnectionState, ClientType, PacketSource
+from webshocket.enum import ClientType, ConnectionState, PacketSource
+from webshocket.handler import DefaultWebSocketHandler, WebSocketHandler
 
 
 class _FakeProtocol:

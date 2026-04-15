@@ -1,9 +1,10 @@
-import picows
-import webshocket
-import pytest
-import pytest_asyncio
 import asyncio
 
+import picows
+import pytest
+import pytest_asyncio
+
+import webshocket
 from webshocket.exceptions import ReceiveTimeoutError
 
 HOST, PORT = "127.0.0.1", 5001
@@ -238,8 +239,8 @@ async def test_client_on_receive_decorator(handler_server):
 # handler.py edge-case coverage
 # ---------------------------------------------------------------------------
 
-from webshocket.handler import WebSocketHandler, DefaultWebSocketHandler
 from webshocket.exceptions import PacketError
+from webshocket.handler import DefaultWebSocketHandler, WebSocketHandler
 
 
 def test_register_non_rpc_raises():

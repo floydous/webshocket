@@ -1,9 +1,11 @@
-import pytest
-import pytest_asyncio
-import webshocket
 import asyncio
 import random
 import string
+
+import pytest
+import pytest_asyncio
+
+import webshocket
 
 HOST, PORT = "127.0.0.1", 5002
 
@@ -78,10 +80,10 @@ async def test_chunking_server_to_client_large(server, client):
     """Test server sending larger than 64kb payload back to client."""
     payload_size = (64 * 1024) + 10
     data = {"some_data": "c" * payload_size}
-    
+
     server_conn = await wait_for_client_connection(server)
     server_conn.send(data)
-    
+
     packet = await asyncio.wait_for(client._packet_queue.get(), timeout=5.0)
     assert packet.data == data
 
@@ -91,9 +93,9 @@ async def test_chunking_server_to_client_massive_1mb(server, client):
     """Test server sending 1MB payload back to client."""
     payload_size = 1024 * 1024
     data = "".join(random.choices(string.ascii_letters, k=payload_size))
-    
+
     server_conn = await wait_for_client_connection(server)
     server_conn.send(data)
-    
+
     packet = await asyncio.wait_for(client._packet_queue.get(), timeout=10.0)
     assert packet.data == data

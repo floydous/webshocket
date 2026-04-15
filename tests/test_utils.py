@@ -1,7 +1,8 @@
 """Tests for webshocket.utils — parse_duration and generate_uuid."""
 
 import pytest
-from webshocket.utils import parse_duration, generate_uuid
+
+from webshocket.utils import generate_uuid, parse_duration
 
 
 def test_generate_uuid_uniqueness():

@@ -1,12 +1,13 @@
-import pytest
-import pytest_asyncio
 import asyncio
 
+import pytest
+import pytest_asyncio
+
 import webshocket
-from webshocket.rpc import rpc_method, rate_limit
 from webshocket.enum import PacketSource, RPCErrorCode
+from webshocket.exceptions import RateLimitError, ReceiveTimeoutError
 from webshocket.packets import RPCResponse
-from webshocket.exceptions import ReceiveTimeoutError, RateLimitError
+from webshocket.rpc import rate_limit, rpc_method
 
 
 class _TestRpcHandler(webshocket.WebSocketHandler):
@@ -47,16 +48,16 @@ async def test_rate_limit(server):
 
     async with webshocket.WebSocketClient("ws://localhost:5003") as client:
         response_packet = await client.send_rpc("sum", payload)
-        assert isinstance(response_packet.rpc, RPCResponse)
-        assert response_packet.rpc.response == payload
+        assert isinstance(response_packet, RPCResponse)
+        assert response_packet.response == payload
 
         with pytest.raises(RateLimitError):
             await client.send_rpc("sum", payload, raise_on_rate_limit=True)
 
         response_on_error = await client.send_rpc("sum", payload, raise_on_rate_limit=False)
 
-        assert isinstance(response_on_error.rpc, RPCResponse)
-        assert response_on_error.rpc.error == RPCErrorCode.RATE_LIMIT_EXCEEDED
+        assert isinstance(response_on_error, RPCResponse)
+        assert response_on_error.error == RPCErrorCode.RATE_LIMIT_EXCEEDED
 
 
 @pytest.mark.asyncio
@@ -82,11 +83,11 @@ async def test_rate_limit_streaming(server):
     payload = b"Hello Stream"
 
     async with webshocket.WebSocketClient("ws://localhost:5003") as client:
-        results = [packet.rpc.response async for packet in client.stream_rpc("stream_sum", payload)]
+        results = [packet.response async for packet in client.stream_rpc("stream_sum", payload)]
         assert results == [payload, payload]
 
         with pytest.raises(RateLimitError):
-            async for packet in client.stream_rpc("stream_sum", payload, raise_on_rate_limit=True):
+            async for _ in client.stream_rpc("stream_sum", payload, raise_on_rate_limit=True):
                 pass
 
 
@@ -125,15 +126,15 @@ async def test_rate_limit_period_reset():
     try:
         async with webshocket.WebSocketClient("ws://localhost:5004") as client:
             r1 = await client.send_rpc("quick_limit", "a")
-            assert r1.rpc.response == "a"
+            assert r1.response == "a"
 
             r2 = await client.send_rpc("quick_limit", "b", raise_on_rate_limit=False)
-            assert r2.rpc.error == RPCErrorCode.RATE_LIMIT_EXCEEDED
+            assert r2.error == RPCErrorCode.RATE_LIMIT_EXCEEDED
 
             await asyncio.sleep(1.2)
 
             r3 = await client.send_rpc("quick_limit", "c")
-            assert r3.rpc.response == "c"
+            assert r3.response == "c"
     finally:
         await server.close()
 
@@ -159,8 +160,8 @@ async def test_rate_limit_disconnect_on_exceed():
                 client.send_rpc("disconnect_limit", "second", raise_on_rate_limit=False),
                 timeout=2.0,
             )
-            assert r2.rpc.error == RPCErrorCode.RATE_LIMIT_EXCEEDED
-        except (RPCTimeoutError, asyncio.TimeoutError):
+            assert r2.error == RPCErrorCode.RATE_LIMIT_EXCEEDED
+        except (TimeoutError, RPCTimeoutError):
             pass  # Connection was killed — expected behavior
 
         await client.close()

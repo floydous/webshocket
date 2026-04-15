@@ -1,6 +1,8 @@
 """Tests for webshocket.predicate — __repr__ on all predicate classes."""
 
-from webshocket.predicate import Has, Is, IsEqual, Any as AnyPred, All as AllPred
+from webshocket.predicate import All as AllPred
+from webshocket.predicate import Any as AnyPred
+from webshocket.predicate import Has, Is, IsEqual
 
 
 def test_has_repr():

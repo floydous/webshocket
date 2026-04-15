@@ -1,13 +1,13 @@
 """Tests for webshocket._internal — picows_server and picows_client edge cases."""
 
-import pytest
 import asyncio
+
+import pytest
+from picows import WSMsgType
 
 import webshocket
 from webshocket.enum import ClientType
 from webshocket.exceptions import ConnectionFailedError
-from picows import WSMsgType
-
 
 # ---------------------------------------------------------------------------
 # picows_server.py — lines 50-56, 78-79, 91-92

@@ -1,7 +1,9 @@
-import webshocket
+import asyncio
+
 import pytest
 import pytest_asyncio
-import asyncio
+
+import webshocket
 
 HOST, PORT = "127.0.0.1", 5000
 

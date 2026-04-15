@@ -1,4 +1,5 @@
 import pytest
+
 import webshocket
 
 (HOST, PORT) = ("127.0.0.1", 5000)
@@ -57,8 +58,6 @@ class _DummyHandler(webshocket.WebSocketHandler):
 @pytest.mark.asyncio
 async def test_accept_non_default_handler_raises():
     """websocket.py:391 — accept() with non-default handler raises TypeError."""
-    import asyncio
-
     server = webshocket.WebSocketServer(HOST, 5050, clientHandler=_DummyHandler)
     await server.start()
 
@@ -95,7 +94,7 @@ async def test_serve_forever_starts_and_stops():
 
     try:
         await asyncio.wait_for(task, timeout=2.0)
-    except (asyncio.TimeoutError, asyncio.CancelledError):
+    except (TimeoutError, asyncio.CancelledError):
         pass
 
     await cancel_task

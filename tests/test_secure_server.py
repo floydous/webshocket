@@ -1,8 +1,9 @@
-import webshocket
-import pytest
-import pytest_asyncio
 import ssl
 
+import pytest
+import pytest_asyncio
+
+import webshocket
 from webshocket.handler import WebSocketHandler
 
 cert_path = "tests/dummy_certificate/dummy_cert.pem"

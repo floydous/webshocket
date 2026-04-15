@@ -1,10 +1,11 @@
-import pytest
-import pytest_asyncio
 import asyncio
 
+import pytest
+import pytest_asyncio
+
 import webshocket
-from webshocket.rpc import rpc_method
 from webshocket.enum import RPCErrorCode
+from webshocket.rpc import rpc_method
 
 HOST, PORT = "127.0.0.1", 5000
 
@@ -43,7 +44,7 @@ async def test_successful_stream(server):
     async with webshocket.WebSocketClient(f"ws://{HOST}:{PORT}") as client:
         results = []
         async for packet in client.stream_rpc("count_to", 5):
-            results.append(packet.rpc.response)
+            results.append(packet.response)
 
         assert results == [1, 2, 3, 4, 5]
 
@@ -56,11 +57,11 @@ async def test_stream_fails_midway(server):
         error_received = None
 
         async for packet in client.stream_rpc("fail_midway"):
-            if packet.rpc.error is not None:
-                error_received = packet.rpc.error
-                results.append(packet.rpc.response)
+            if packet.error is not None:
+                error_received = packet.error
+                results.append(packet.response)
             else:
-                results.append(packet.rpc.response)
+                results.append(packet.response)
 
         assert results[:2] == ["one", "two"]
         assert len(results) == 3
@@ -74,16 +75,16 @@ async def test_concurrent_rpcs(server):
     async with webshocket.WebSocketClient(f"ws://{HOST}:{PORT}") as client:
 
         async def fetch_stream():
-            return [p.rpc.response async for p in client.stream_rpc("count_to", 3, delay=0.1)]
+            return [p.response async for p in client.stream_rpc("count_to", 3, delay=0.1)]
 
         async def fetch_standard():
             await asyncio.sleep(0.15) # Wait to be midway into the stream fetching
             resp = await client.send_rpc("standard_rpc")
-            return resp.rpc.response
+            return resp.response
 
         stream_results, standard_result = await asyncio.gather(
             fetch_stream(),
-            fetch_standard()
+            fetch_standard(),
         )
 
         assert stream_results == [1, 2, 3]
@@ -96,12 +97,12 @@ async def test_client_breaks_stream(server):
     async with webshocket.WebSocketClient(f"ws://{HOST}:{PORT}") as client:
         results = []
         async for packet in client.stream_rpc("count_to", 100):
-            results.append(packet.rpc.response)
-            if packet.rpc.response == 3:
+            results.append(packet.response)
+            if packet.response == 3:
                 break
 
         assert results == [1, 2, 3]
 
         # Test connection is still completely usable
         resp = await client.send_rpc("standard_rpc")
-        assert resp.rpc.response == "Not a stream"
+        assert resp.response == "Not a stream"
