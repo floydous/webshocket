@@ -1,22 +1,23 @@
 import asyncio
 import ssl
+from collections.abc import Callable, Coroutine
+from typing import TYPE_CHECKING, Any, Self
 
-from webshocket import ConnectionState
-from typing import TYPE_CHECKING, Any, Callable, Coroutine, Self
 from picows import (
     WSFrame,
     WSListener,
     WSMsgType,
-    WSUpgradeRequest,
     WSTransport,
+    WSUpgradeRequest,
     WSUpgradeResponse,
     WSUpgradeResponseWithListener,
     ws_create_server,
 )
 
-from webshocket.enum import ClientType
-from webshocket.typing import DEFAULT_WEBSHOCKET_SUBPROTOCOL
+from webshocket import ConnectionState
 from webshocket.connection import ClientConnection
+from webshocket.constant import DEFAULT_WEBSHOCKET_SUBPROTOCOL
+from webshocket.enum import ClientType
 
 if TYPE_CHECKING:
     from webshocket import WebSocketServer
@@ -26,13 +27,13 @@ HandlerLike = Callable[[WSTransport, "ServerClientListener"], Coroutine[Any, Any
 
 class ServerClientListener(WSListener):
     __slots__ = (
+        "_connection",
+        "_frag_buffer",
+        "_handler_task",
+        "_pending_payload",
+        "_ready",
         "clientType",
         "handler",
-        "_handler_task",
-        "_connection",
-        "_ready",
-        "_pending_payload",
-        "_frag_buffer",
     )
 
     def __init__(self, handler: HandlerLike, clientType: ClientType):
@@ -96,16 +97,22 @@ class ServerClientListener(WSListener):
 
 class PicowsServer:
     __slots__ = (
+        "_client_bucket",
+        "_handler",
+        "_max_connection",
+        "_picows_server",
         "host",
         "port",
         "ssl_context",
-        "_handler",
-        "_client_bucket",
-        "_max_connection",
-        "_picows_server",
     )
 
-    def __init__(self, host: str, port: int, webshocket_server: "WebSocketServer", ssl_context: ssl.SSLContext | None = None):
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        webshocket_server: "WebSocketServer",
+        ssl_context: ssl.SSLContext | None = None,
+    ):
         self.host = host
         self.port = port
         self.ssl_context = ssl_context

@@ -1,14 +1,14 @@
 import asyncio
 import ssl
-
-from typing import Awaitable, Callable, Optional, TYPE_CHECKING
-from picows import WSCloseCode, WSFrame, WSListener, WSMsgType, WSTransport, ws_connect
+from collections.abc import Awaitable, Callable
 from functools import partial
+from typing import TYPE_CHECKING
 
+from picows import WSCloseCode, WSFrame, WSListener, WSMsgType, WSTransport, ws_connect
+
+from ..constant import DEFAULT_CHUNK_SIZE, DEFAULT_WEBSHOCKET_SUBPROTOCOL
+from ..exceptions import ConnectionClosedError, ConnectionFailedError
 from ..packets import Packet
-from ..typing import DEFAULT_WEBSHOCKET_SUBPROTOCOL
-from ..exceptions import ConnectionFailedError, ConnectionClosedError
-from ..constant import DEFAULT_CHUNK_SIZE
 
 ON_RECEIVE_TYPE = Callable[[Packet], Awaitable[None]]
 
@@ -48,11 +48,11 @@ class ClientListener(WSListener):
 
 class client:
     __slots__ = (
-        "_protocol",
-        "_listener_instance",
         "_frame_queue",
-        "ssl_context",
+        "_listener_instance",
+        "_protocol",
         "cert",
+        "ssl_context",
         "uri",
     )
 
@@ -60,12 +60,12 @@ class client:
         self,
         uri: str,
         *,
-        ca_cert_path: Optional[str] = None,
+        ca_cert_path: str | None = None,
         ssl_context: ssl.SSLContext | None = None,
         frame_qsize: int = 64,
     ):
-        self._protocol: Optional[WSTransport] = None
-        self._listener_instance: Optional[ClientListener] = None
+        self._protocol: WSTransport | None = None
+        self._listener_instance: ClientListener | None = None
         self._frame_queue = asyncio.Queue(maxsize=frame_qsize)
 
         self.ssl_context = ssl_context
@@ -80,12 +80,12 @@ class client:
             del kwargs["extra_headers"]
 
         self._protocol, listener_instance = await ws_connect(
+            *args,
             ws_listener_factory=partial(ClientListener, self),
             extra_headers=extra_headers,
             ssl_context=self.ssl_context,
             url=self.uri,
             enable_auto_ping=True,
-            *args,
             **kwargs,
         )
 
