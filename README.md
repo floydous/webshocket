@@ -4,10 +4,10 @@
 [![PyPI version](https://img.shields.io/pypi/v/webshocket)](https://pypi.org/project/webshocket/)
 [![License](https://img.shields.io/badge/License-MIT-blue)](https://opensource.org/license/mit)
 [![Code style: ruff](https://img.shields.io/badge/code_style-ruff-dafd5e)](https://github.com/astral-sh/ruff)
-[![codecov](https://codecov.io/github/floydous/webshocket/graph/badge.svg?token=715OHOSTVP)](https://codecov.io/github/floydous/webshocket)
+[![codecov](https://codecov.io/github/floydous/webshocket/branch/main/graph/badge.svg?token=715OHOSTVP)](https://codecov.io/github/floydous/webshocket)
 
 > [!WARNING]
-> Webshocket is still unfinished and is not ready for proper-project use. It is advised to not expect any stability from this project until it reaches a stable release
+> Webshocket is still unfinished and is not ready for proper project use. It is advised not to expect any stability from this project until it reaches a stable release
 
 # Webshocket
 
