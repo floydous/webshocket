@@ -1,13 +1,18 @@
-import inspect
 import fnmatch
+import inspect
 import re
-
-from typing import TYPE_CHECKING, Optional, Set, Dict, Iterable, Union, TypeVar, Generic, cast
 from collections import defaultdict
+from collections.abc import Iterable
+from typing import (
+    TYPE_CHECKING,
+    Generic,
+    TypeVar,
+    cast,
+)
 
-from .packets import Packet, PacketSource
-from .typing import RPC_Function, RPC_Predicate, RPCMethod, SessionState
 from .exceptions import PacketError
+from .packets import Packet, PacketSource
+from .typing import RPC_Function, RPC_Predicate, RPCMethod, SessionState, Serializable
 
 if TYPE_CHECKING:
     from .connection import ClientConnection
@@ -26,19 +31,20 @@ class WebSocketHandler(Generic[TState]):
     Attributes:
         clients (Set[ClientConnection]): A set of all currently connected clients managed by this handler.
         channels (Dict[str, Set[ClientConnection]]): A dictionary mapping channel names to sets of subscribed clients.
+
     """
 
-    __slots__ = ("clients", "channels", "patterns", "_compiled_patterns", "_pattern_cache", "_rpc_methods")
+    __slots__ = ("_compiled_patterns", "_pattern_cache", "_rpc_methods", "channels", "clients", "patterns")
 
     def __init__(self) -> None:
         """Initializes the WebSocketHandler."""
-        self.clients: Set[ClientConnection] = set()
-        self.channels: Dict[str, Set[ClientConnection]] = defaultdict(set)
+        self.clients: set[ClientConnection] = set()
+        self.channels: dict[str, set[ClientConnection]] = defaultdict(set)
         self.patterns: dict[str, set[ClientConnection]] = defaultdict(set)
         self._compiled_patterns: dict[str, re.Pattern] = {}
         self._pattern_cache: dict[str, list[str]] = {}
 
-        self._rpc_methods: Dict[str, RPCMethod] = dict()
+        self._rpc_methods: dict[str, RPCMethod] = {}
 
         for name, func in inspect.getmembers(self, predicate=callable):
             rpc_alias_name = getattr(func, "_rpc_alias_name", name)
@@ -47,13 +53,13 @@ class WebSocketHandler(Generic[TState]):
                 continue
 
             self._rpc_methods[rpc_alias_name] = RPCMethod(
-                func=cast(RPC_Function, func),
+                func=cast("RPC_Function", func),
                 rate_limit=getattr(func, "_rate_limit", None),
                 restricted=getattr(func, "_restricted", None),
                 is_stream=getattr(func, "_is_stream", False),
             )
 
-    def register_rpc_method(self, func: RPC_Function, alias_name: Optional[str] = None) -> None:
+    def register_rpc_method(self, func: RPC_Function, alias_name: str | None = None) -> None:
         """Registers a function as an RPC method dynamically.
 
         Args:
@@ -63,8 +69,8 @@ class WebSocketHandler(Generic[TState]):
 
         Raises:
             ValueError: If the function is not marked as an RPC method.
-        """
 
+        """
         if not getattr(func, "_is_rpc_method", False):
             raise ValueError("Function is a non-RPC method.")
 
@@ -82,16 +88,16 @@ class WebSocketHandler(Generic[TState]):
 
         Args:
             connection (ClientConnection[TState]): The connection object for the new client.
+
         """
-        pass
 
     async def on_disconnect(self, connection: "ClientConnection[TState]"):
         """Called when a client disconnects.
 
         Args:
             connection (ClientConnection[TState]): The connection object for the disconnected client.
+
         """
-        pass
 
     async def on_receive(self, connection: "ClientConnection[TState]", packet: Packet):
         """Called when a client sends a confirmed packet.
@@ -99,28 +105,28 @@ class WebSocketHandler(Generic[TState]):
         Args:
             connection (ClientConnection[TState]): The connection object sending the packet.
             packet (Packet): The received data packet.
+
         """
-        pass
 
     def broadcast(
         self,
-        data: Union[str | bytes, Packet],
-        exclude: Optional[tuple["ClientConnection", ...]] = None,
-        predicate: Optional[RPC_Predicate] = None,
+        data: Serializable,
+        exclude: tuple["ClientConnection", ...] | None = None,
+        predicate: RPC_Predicate | None = None,
         **kwargs,
     ) -> None:
         """Broadcasts a message to all connected clients, with optional exclusions.
 
         Args:
-            data (Union[str, bytes, Packet]): The message data to broadcast.
+            data (Serializable): The message data to broadcast.
             exclude (Optional[tuple[ClientConnection, ...]]): A tuple of client connections
                 to exclude from the broadcast. Defaults to None.
             **kwargs: Additional arguments to pass to the Packet constructor.
 
         Raises:
             PacketError: If attempting to broadcast a packet with a source other than PacketSource.BROADCAST.
-        """
 
+        """
         if not self.clients:
             return
 
@@ -144,22 +150,23 @@ class WebSocketHandler(Generic[TState]):
     def publish(
         self,
         channel: str | Iterable[str],
-        data: Union[str | bytes, Packet],
-        exclude: Optional[tuple["ClientConnection", ...]] = None,
-        predicate: Optional[RPC_Predicate] = None,
+        data: Serializable,
+        exclude: tuple["ClientConnection", ...] | None = None,
+        predicate: RPC_Predicate | None = None,
     ) -> None:
         """Publishes a message to all clients subscribed to a specific channel.
 
         Args:
             channel (str | Iterable[str]): The name of the channel(s) to publish the message to.
-            data (Union[str, bytes, Packet]): The message data to publish.
+            data (Serializable): The message data to publish.
             exclude (Optional[tuple[ClientConnection, ...]]): A tuple of client connections
                 to exclude from the publication. Defaults to None.
 
         Raises:
             PacketError: If attempting to publish a packet with a source other than PacketSource.CHANNEL.
+
         """
-        exclude_set = set(exclude if exclude is not None else tuple())
+        exclude_set = set(exclude if exclude is not None else ())
         channels = {channel} if isinstance(channel, str) else set(channel)
 
         if isinstance(data, Packet) and data.source is not PacketSource.CHANNEL:
@@ -189,6 +196,7 @@ class WebSocketHandler(Generic[TState]):
         Args:
             client (ClientConnection): The client connection to subscribe.
             channel (str | Iterable): The channel name(s) to subscribe the client to.
+
         """
         channel = {channel} if isinstance(channel, str) else set(channel)
 
@@ -211,6 +219,7 @@ class WebSocketHandler(Generic[TState]):
         Args:
             client (ClientConnection): The client connection to unsubscribe.
             channel (str | Iterable[str]): The channel name(s) to unsubscribe the client from.
+
         """
         channel = {channel} if isinstance(channel, str) else set(channel)
 

@@ -1,18 +1,20 @@
-from webshocket.packets import _json_decoder
-from webshocket.packets import _json_encoder
 import asyncio
 import logging
-import msgspec
-
+from collections.abc import AsyncGenerator, Iterable
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
 from uuid import uuid4
-from picows import WSCloseCode, WSMsgType, WSTransport
-from typing import Any, Iterable, Union, Optional, TYPE_CHECKING, TypeVar, Generic
 
-from .packets import Packet, RPCResponse, serialize, deserialize
-from .enum import PacketSource, ConnectionState, ClientType
-from .handler import DefaultWebSocketHandler
-from .exceptions import ConnectionClosedError, ReceiveTimeoutError
+import msgspec
+from picows import WSCloseCode, WSMsgType, WSTransport
+
+from webshocket.packets import _json_decoder, _json_encoder
+
 from .constant import DEFAULT_CHUNK_SIZE
+from .enum import ClientType, ConnectionState, PacketSource
+from .exceptions import ConnectionClosedError, ReceiveTimeoutError
+from .handler import DefaultWebSocketHandler
+from .packets import Packet, RPCResponse, deserialize, serialize
+from .typing import Serializable
 
 if TYPE_CHECKING:
     from .handler import WebSocketHandler
@@ -38,22 +40,23 @@ class ClientConnection(Generic[TState]):
         logger (Logger): A logger instance for this connection.
         remote_address (tuple[str, int]): The (host, port) of the connected client.
         subscribed_channel (set[str]): A set of channel names this client is subscribed to.
+
     """
 
     __slots__ = (
-        "_remote_address",
-        "_payload_queue",
-        "_packet_queue",
-        "_protocol",
-        "_handler",
-        "_subscribed_channels",
         "_active_stream",
+        "_handler",
+        "_packet_queue",
+        "_payload_queue",
+        "_protocol",
+        "_remote_address",
+        "_subscribed_channels",
         "client_type",
         "connection_state",
-        "session_state",
-        "max_subscribed_channels",
-        "uid",
         "logger",
+        "max_subscribed_channels",
+        "session_state",
+        "uid",
     )
 
     def __init__(
@@ -74,18 +77,18 @@ class ClientConnection(Generic[TState]):
             handler (WebSocketHandler): The handler instance managing this connection.
             client_type (ClientType): The classification of the connected client.
             packet_qsize (int): The maximum size of the packet queue. Defaults to 128.
-        """
 
+        """
         object.__setattr__(self, "_subscribed_channels", set())
         object.__setattr__(self, "_payload_queue", asyncio.Queue[bytes](maxsize=1024))
         object.__setattr__(self, "_packet_queue", asyncio.Queue[Packet](maxsize=packet_qsize))
-        object.__setattr__(self, "_active_stream", dict())
+        object.__setattr__(self, "_active_stream", {})
         object.__setattr__(self, "_protocol", websocket_protocol)
         object.__setattr__(self, "_handler", handler)
 
         object.__setattr__(self, "client_type", client_type)
         object.__setattr__(self, "connection_state", ConnectionState.CONNECTED)
-        object.__setattr__(self, "session_state", dict())
+        object.__setattr__(self, "session_state", {})
         object.__setattr__(self, "uid", uuid4())
         object.__setattr__(self, "logger", logging.getLogger("webshocket.connection"))
         object.__setattr__(self, "max_subscribed_channels", max_subscribed_channels)
@@ -113,22 +116,20 @@ class ClientConnection(Generic[TState]):
 
         Returns:
             A copy of the internal subscribed channels set.
+
         """
         return self._subscribed_channels.copy()
 
-    def send(self, data: Union[Any, Packet], chunk_size: int = DEFAULT_CHUNK_SIZE) -> None:
+    def send(self, data: Serializable, chunk_size: int = DEFAULT_CHUNK_SIZE) -> None:
         """Sends data over the connection.
 
-        This is method ensures all data is sent in a structured Packet format.
-
-        - If given a Pydantic `Packet` object, it serializes and sends it.
-        - If given a raw `str` or `bytes`, it automatically wraps it in a
-          default `Packet` before serializing and sending.
+        Non-Packet payloads are wrapped in a `Packet` before serialization.
+        Framework clients receive msgpack; generic clients receive JSON.
         """
 
-        packet: Packet = data
-
-        if not isinstance(data, Packet):
+        if isinstance(data, Packet):
+            packet: Serializable = data
+        else:
             packet = Packet(
                 data=data,
                 source=PacketSource.CUSTOM,
@@ -168,13 +169,12 @@ class ClientConnection(Generic[TState]):
         )
 
     def _send_rpc_response(self, rpc_response: "RPCResponse") -> None:
-        """
-        Sends an RPC response back to the client.
+        """Sends an RPC response back to the client.
 
         Args:
             rpc_response (RPCResponse): The RPC response object to send.
-        """
 
+        """
         packet = Packet(
             source=PacketSource.RPC,
             rpc=rpc_response,
@@ -182,7 +182,7 @@ class ClientConnection(Generic[TState]):
 
         self.send(packet)
 
-    async def recv(self, timeout: Optional[float] = 30.0) -> Packet:
+    async def recv(self, timeout: float | None = 30.0) -> Packet:
         """Receives the next message and parses it into a validated Packet object.
 
         This method receives the incoming data from the client and parse it into
@@ -200,8 +200,8 @@ class ClientConnection(Generic[TState]):
 
         Returns:
             A validated Packet object.
-        """
 
+        """
         # if self.on_receive_callback:
         #     raise TypeError("Cannot use manual recv() when an on_receive callback is active.")
         packet: Packet
@@ -232,16 +232,16 @@ class ClientConnection(Generic[TState]):
 
             return packet
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             raise ReceiveTimeoutError(f"Receive operation timed out after {timeout} seconds.") from None
 
-    def subscribe(self, channel: Union[str, Iterable[str]]) -> bool:
+    def subscribe(self, channel: str | Iterable[str]) -> bool:
         """A shortcut method for this connection to join one or more channels.
 
         Args:
             channel: A string or iterable that contains lists of channel to join.
-        """
 
+        """
         # 0 means no limit
         if self.max_subscribed_channels > len(self._subscribed_channels) and self.max_subscribed_channels != 0:
             self._handler.subscribe(self, channel)
@@ -249,21 +249,22 @@ class ClientConnection(Generic[TState]):
 
         return False
 
-    def unsubscribe(self, channel: Union[str, Iterable[str]]) -> None:
+    def unsubscribe(self, channel: str | Iterable[str]) -> None:
         """A shortcut method for this connection to leave one or more channels.
 
         Args:
-            channel: A string or iterable that contains lists of channel to leave."""
+            channel: A string or iterable that contains lists of channel to leave.
+
+        """
         self._handler.unsubscribe(self, channel)
 
     def close(self, code: WSCloseCode = WSCloseCode.OK, reason: bytes = b"") -> None:
         """Closes the connection."""
-
         object.__setattr__(self, "connection_state", ConnectionState.CLOSED)
         self._protocol.send_close(code, reason)
         self._protocol.disconnect()
 
-    async def __aiter__(self):
+    async def __aiter__(self) -> AsyncGenerator[bytes, None]:
         while self.connection_state != ConnectionState.CLOSED:
             payload = await self._payload_queue.get()
 
@@ -275,15 +276,14 @@ class ClientConnection(Generic[TState]):
         raise ConnectionClosedError
 
     def __setattr__(self, name: str, value: Any) -> None:
-        """
-        Called when setting an attribute. All assignments are redirected
+        """Called when setting an attribute. All assignments are redirected
         to the session_state dictionary.
         """
         session_state = object.__getattribute__(self, "session_state")
         session_state[name] = value
 
     def __getattr__(self, name: str) -> Any:
-        """Called when reading `session_state` via `connection._example_data`
+        """Called when reading `session_state` via attribute access.
 
         Called when getting an attribute. The lookup order is:
             1. Check the session_state dictionary.
@@ -302,7 +302,6 @@ class ClientConnection(Generic[TState]):
 
     def __delattr__(self, name: str) -> None:
         """Called when deleting an attribute (e.g., `del connection.username`)."""
-
         if name in object.__getattribute__(self, "session_state"):
             del object.__getattribute__(self, "session_state")[name]
         else:

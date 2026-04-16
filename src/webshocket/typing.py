@@ -1,12 +1,20 @@
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Concatenate, ParamSpec, Protocol, TypeVar, overload
+from typing import TYPE_CHECKING, Any, Concatenate, ParamSpec, Protocol, TypeAlias, TypeVar, overload
+
+import msgspec
+
+from .packets import Packet
 
 if TYPE_CHECKING:
     from .connection import ClientConnection
 
 P = ParamSpec("P")
 R = TypeVar("R")
+
+Serializable: TypeAlias = (
+    None | bool | int | float | str | bytes | bytearray | list | tuple | set | frozenset | dict | msgspec.Struct | Packet
+)
 
 
 class RPCDecorator(Protocol):

@@ -37,11 +37,7 @@ from .packets import (
     deserialize,
     serialize,
 )
-from .typing import (
-    RateLimitConfig,
-    RPC_Predicate,
-    RPCMethod,
-)
+from .typing import RateLimitConfig, RPC_Predicate, RPCMethod, Serializable
 
 H = TypeVar("H", bound=WebSocketHandler)
 
@@ -422,7 +418,7 @@ class server(Generic[H]):
             self._server = await picows_server.PicowsServer(
                 host=self.host,
                 port=self.port,
-                webshocket_server=self, # type: ignore
+                webshocket_server=self,  # type: ignore
                 ssl_context=self.ssl_context,
             ).serve(**kwargs)
 
@@ -667,11 +663,14 @@ class client:
         await self.close()
         raise ConnectionFailedError("All connection attempts failed after multiple retries.")
 
-    def send(self, data: Any | Packet) -> None:
+    def send(self, data: Serializable) -> None:
         """Sends data over the WebSocket connection.
 
         Args:
-            data (Any | Packet): The data to send. Could be anything as long it's serializeable by `msgpack`
+            data (Serializable): The data to send. Must be a serializable type.
+
+        Raises:
+            WebSocketError: If the client is not connected.
 
         Raises:
             WebSocketError: If the client is not connected.

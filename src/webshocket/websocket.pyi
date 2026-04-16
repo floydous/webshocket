@@ -15,7 +15,7 @@ from .connection import ClientConnection
 from .enum import ConnectionState, ServerState
 from .handler import WebSocketHandler
 from .packets import Packet, RPCResponse
-from .typing import RPC_Function, RPC_Predicate
+from .typing import RPC_Function, RPC_Predicate, Serializable
 
 H = TypeVar("H", bound=WebSocketHandler)
 
@@ -52,14 +52,14 @@ class server(Generic[H]):
     def unsubscribe(self, client: ClientConnection, channel: str | Iterable[str]) -> None: ...
     def broadcast(
         self,
-        data: str | bytes | Packet,
+        data: Serializable,
         exclude: tuple[ClientConnection, ...] | None = None,
         predicate: RPC_Predicate | None = None,
     ) -> None: ...
     def publish(
         self,
         channel: str | Iterable[str],
-        data: str | bytes | Packet,
+        data: Serializable,
         exclude: tuple[ClientConnection, ...] | None = None,
         predicate: RPC_Predicate | None = None,
     ) -> None: ...
@@ -114,8 +114,8 @@ class client:
         *args,
         raise_on_rate_limit: bool = True,
         **kwargs,
-    ) -> AsyncGenerator[RPCResponse, None]: ...
-    def send(self, data: Any | Packet) -> None: ...
+    ) -> AsyncGenerator[RPCResponse]: ...
+    def send(self, data: Serializable) -> None: ...
     async def recv(self, timeout: float | None = 30) -> Packet: ...
     async def close(self) -> None: ...
     async def __aenter__(self) -> Self: ...
