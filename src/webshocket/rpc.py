@@ -1,68 +1,85 @@
-import asyncio
 import inspect
-
+from collections.abc import Callable
 from functools import wraps
-from typing import Callable, Any, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
-from .typing import RPC_Predicate, RateLimitConfig
+from .typing import RateLimitConfig, RPCDecorator
 from .utils import parse_duration
 
 if TYPE_CHECKING:
     from .handler import WebSocketHandler
 
 
-def rpc_method(alias_name: Optional[str] = None, requires: Optional[RPC_Predicate] = None) -> Callable[..., Any]:
+def rpc_method(alias_name: str | None = None, requires: Any | None = None) -> RPCDecorator:
     """
-    Decorator to mark a method in a WebSocketHandler as an RPC-callable method.
-    When a method is decorated with @rpc_method, it becomes callable by clients
-    via RPC requests. The method must be an async function.
-
-    The decorated method will be automatically registered with the handler's
-    RPC dispatcher.
+    Decorator to mark a function as an RPC method in a WebSocketHandler.
 
     Usage:
         class MyHandler(WebSocketHandler):
-            @rpc_method(alias_name="my_rpc_function", requires=IsEqual("is_admin", True))
-            async def my_rpc(self, connection: ClientConnection, arg1: str, arg2: int):
-                # ... implementation ...
-                return True
+            @rpc_method()
+            async def my_method(self, connection: ClientConnection, data: Any):
+                ...
+
+            @rpc_method(alias_name="custom-name")
+            async def another_method(self, connection: ClientConnection):
+                ...
+
+            @webshocket.rpc_method(requires=webshocket.IsEqual("admin", True))
+            async def admin_only(self, connection: webshocket.ClientConnection):
+                ...
 
     Args:
-        alias_name (Optional[str]): An alias name for the RPC method.
-        requires (Optional[RPC_Predicate]): A function that returns
-            True if the client connection is allowed to call the method, False otherwise.
-            Can use helpers like Has(), Is(), Any(), All().
+        alias_name (str | None): Optional alias to expose the method under a different name.
+        requires (Any | None): Optional permission or requirement for the method.
 
     Returns:
-        Callable: The wrapped function.
+        RPCDecorator: The decorator function.
     """
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-        is_asyncgenfunction = inspect.isasyncgenfunction(func)
+        sig = inspect.signature(func)
+        params = list(sig.parameters.values())
 
-        if not (asyncio.iscoroutinefunction(func) or is_asyncgenfunction):
+        if not params:
+            raise TypeError(
+                f"'{func.__name__}' must accept at least one parameter for the client connection."
+            )
+
+        is_method = params[0].name == "self"
+        min_required = 2 if is_method else 1
+
+        if len(params) < min_required:
+            expected = "('self', connection_obj, ...)" if is_method else "(connection_obj, ...)"
+            raise TypeError(f"'{func.__name__}' must accept at least {min_required} parameters: {expected}")
+
+        is_asyncgenfunction = inspect.isasyncgenfunction(func)
+        if not (inspect.iscoroutinefunction(func) or is_asyncgenfunction):
             raise TypeError(f"RPC method '{func.__name__}' must be an async function.")
 
         if is_asyncgenfunction:
 
             @wraps(func)
-            async def wrapper(self: "WebSocketHandler", *args: Any, **kwargs: Any) -> Any:
-                async for chunk in func(self, *args, **kwargs):
+            async def async_gen_wrapper(*args: Any, **kwargs: Any) -> Any:
+                async for chunk in func(*args, **kwargs):
                     yield chunk
+
+            wrapper = async_gen_wrapper
         else:
 
             @wraps(func)
-            async def wrapper(self: "WebSocketHandler", *args: Any, **kwargs: Any) -> Any:
-                return await func(self, *args, **kwargs)
+            async def regular_wrapper(*args: Any, **kwargs: Any) -> Any:
+                return await func(*args, **kwargs)
 
-        setattr(wrapper, "_rpc_alias_name", (alias_name or func.__name__))
-        setattr(wrapper, "_is_stream", is_asyncgenfunction)
-        setattr(wrapper, "_restricted", requires)
-        setattr(wrapper, "_is_rpc_method", True)
+            wrapper = regular_wrapper
+
+        wrapper.__dict__["_rpc_alias_name"] = alias_name or func.__name__
+        wrapper.__dict__["_is_stream"] = is_asyncgenfunction
+        wrapper.__dict__["_restricted"] = requires
+        wrapper.__dict__["_is_rpc_method"] = True
 
         return wrapper
 
-    return decorator
+    return cast(RPCDecorator, decorator)
 
 
 def rate_limit(
@@ -92,7 +109,7 @@ def rate_limit(
     """
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-        if not (asyncio.iscoroutinefunction(func) or inspect.isasyncgenfunction(func)):
+        if not (inspect.iscoroutinefunction(func) or inspect.isasyncgenfunction(func)):
             raise TypeError(f"RPC method '{func.__name__}' must be an async function.")
 
         if inspect.isasyncgenfunction(func):
@@ -107,14 +124,10 @@ def rate_limit(
             async def wrapper(self: "WebSocketHandler", *args: Any, **kwargs: Any) -> Any:
                 return await func(self, *args, **kwargs)
 
-        setattr(
-            wrapper,
-            "_rate_limit",
-            RateLimitConfig(
-                limit=limit,
-                period=parse_duration(period),
-                disconnect_on_limit_exceeded=disconnect_on_limit_exceeded,
-            ),
+        wrapper.__dict__["_rate_limit"] = RateLimitConfig(
+            limit=limit,
+            period=parse_duration(period),
+            disconnect_on_limit_exceeded=disconnect_on_limit_exceeded,
         )
 
         return wrapper

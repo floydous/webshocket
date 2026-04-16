@@ -1,10 +1,22 @@
-from typing import Callable, Optional, Any, Awaitable, Protocol, TYPE_CHECKING
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Concatenate, ParamSpec, Protocol, TypeVar, overload
 
 if TYPE_CHECKING:
     from .connection import ClientConnection
 
-DEFAULT_WEBSHOCKET_SUBPROTOCOL = "webshocket.v1"
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
+class RPCDecorator(Protocol):
+    @overload
+    def __call__(
+        self, func: Callable[Concatenate[Any, "ClientConnection", P], R]
+    ) -> Callable[Concatenate[Any, "ClientConnection", P], R]: ...
+
+    @overload
+    def __call__(self, func: Callable[Concatenate["ClientConnection", P], R]) -> Callable[Concatenate["ClientConnection", P], R]: ...
 
 
 class RPC_Function(Protocol):
@@ -18,11 +30,7 @@ class RPC_Predicate(Protocol):
 
 
 class SessionState(Protocol):
-    """
-    Defines the interface for session state.
-    """
-
-    pass
+    """Defines the interface for session state."""
 
 
 @dataclass(slots=True, frozen=True)
@@ -35,8 +43,8 @@ class RateLimitConfig:
 @dataclass(slots=True, frozen=True)
 class RPCMethod:
     func: Callable
-    rate_limit: Optional[RateLimitConfig] = None
-    restricted: Optional[RPC_Predicate] = None
+    rate_limit: RateLimitConfig | None = None
+    restricted: RPC_Predicate | None = None
     is_stream: bool = False
 
     def __repr__(self) -> str:
