@@ -1,7 +1,7 @@
 import asyncio
 import ssl
 from collections.abc import Callable, Coroutine
-from typing import TYPE_CHECKING, Any, Self
+from typing import TYPE_CHECKING, Any
 
 from picows import (
     WSFrame,
@@ -143,7 +143,7 @@ class PicowsServer:
 
         return ServerClientListener(self._handler, ClientType.GENERIC)
 
-    async def serve(self, **kwargs) -> Self:
+    async def serve(self, **kwargs) -> "PicowsServer":
         if self._picows_server is not None:
             raise RuntimeError("Server is already running")
 

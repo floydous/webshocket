@@ -1,4 +1,6 @@
-from typing import Any as TAny, TYPE_CHECKING
+from typing import TYPE_CHECKING
+from typing import Any as TAny
+
 from .typing import RPC_Predicate
 
 if TYPE_CHECKING:
@@ -8,7 +10,12 @@ _MISSING = object()
 
 
 class Has:
-    """Checks if the connection has a specific state attribute."""
+    """Checks if the connection has a specific state attribute.
+
+    .. code-block:: python
+
+        @rpc_method(requires=Has("username"))
+    """
 
     __slots__ = ("key",)
 
@@ -24,7 +31,12 @@ class Has:
 
 
 class Is:
-    """Checks if the connection has a specific state attribute that is truthy."""
+    """Checks if the connection has a specific state attribute that is truthy.
+
+    .. code-block:: python
+
+        @rpc_method(requires=Is("is_admin"))
+    """
 
     __slots__ = ("key",)
 
@@ -39,7 +51,12 @@ class Is:
 
 
 class IsEqual:
-    """Checks if the connection has a specific state attribute with a matching value."""
+    """Checks if the connection has a specific state attribute with a matching value.
+
+    .. code-block:: python
+
+        @rpc_method(requires=IsEqual("role", "editor"))
+    """
 
     __slots__ = ("key", "value")
 
@@ -55,7 +72,12 @@ class IsEqual:
 
 
 class Any:
-    """Logical OR: Returns True if ANY of the provided predicates are True."""
+    """Logical OR: Returns True if ANY of the provided predicates are True.
+
+    .. code-block:: python
+
+        @rpc_method(requires=Any(IsEqual("role", "admin"), IsEqual("role", "editor")))
+    """
 
     __slots__ = ("predicates",)
 
@@ -70,7 +92,12 @@ class Any:
 
 
 class All:
-    """Logical AND: Returns True if ALL of the provided predicates are True."""
+    """Logical AND: Returns True if ALL of the provided predicates are True.
+
+    .. code-block:: python
+
+        @rpc_method(requires=All(Has("username"), IsEqual("is_active", True)))
+    """
 
     __slots__ = ("predicates",)
 
