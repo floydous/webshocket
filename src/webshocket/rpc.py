@@ -14,7 +14,8 @@ def rpc_method(alias_name: str | None = None, requires: Any | None = None) -> RP
     """
     Decorator to mark a function as an RPC method in a WebSocketHandler.
 
-    Usage:
+    .. code-block:: python
+
         class MyHandler(WebSocketHandler):
             @rpc_method()
             async def my_method(self, connection: ClientConnection, data: Any):
@@ -24,13 +25,13 @@ def rpc_method(alias_name: str | None = None, requires: Any | None = None) -> RP
             async def another_method(self, connection: ClientConnection):
                 ...
 
-            @webshocket.rpc_method(requires=webshocket.IsEqual("admin", True))
-            async def admin_only(self, connection: webshocket.ClientConnection):
+            @rpc_method(requires=IsEqual("admin", True))
+            async def admin_only(self, connection: ClientConnection):
                 ...
 
     Args:
         alias_name (str | None): Optional alias to expose the method under a different name.
-        requires (Any | None): Optional permission or requirement for the method.
+        requires (Any | None): Optional permission or requirement (predicate) for the method.
 
     Returns:
         RPCDecorator: The decorator function.
@@ -41,9 +42,7 @@ def rpc_method(alias_name: str | None = None, requires: Any | None = None) -> RP
         params = list(sig.parameters.values())
 
         if not params:
-            raise TypeError(
-                f"'{func.__name__}' must accept at least one parameter for the client connection."
-            )
+            raise TypeError(f"'{func.__name__}' must accept at least one parameter for the client connection.")
 
         is_method = params[0].name == "self"
         min_required = 2 if is_method else 1
@@ -90,18 +89,19 @@ def rate_limit(
 ) -> Callable[..., Any]:
     """
     Decorator to mark a method in a WebSocketHandler as a rate-limited method.
-    This decorator is used to limit the number of times a method can be called
-    within a certain period of time.
+    This limits the number of times a method can be called within a specific time period.
 
-    Usage:
+    .. code-block:: python
+
         class MyHandler(WebSocketHandler):
             @rate_limit(limit=5, period="1m") # 5 calls per minute
-            async def on_receive(self, connection: ClientConnection):
+            @rpc_method()
+            async def expensive_call(self, connection: ClientConnection):
                 ...
 
     Args:
         limit (int): The maximum number of times the method can be called within the specified time unit.
-        period (str): The time unit for the rate limit.
+        period (str): The time unit for the rate limit (e.g., "10s", "1m", "1h").
         disconnect_on_limit_exceeded (bool): Whether to disconnect the client when the rate limit is exceeded.
 
     Returns:
