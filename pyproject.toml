@@ -1,25 +1,23 @@
 [project]
 name = "webshocket"
-version = "0.5.1"
+version = "0.5.2"
 description = "An enhanced module to provide a robust, socket-like abstraction for WebSockets"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.11"
 
 dependencies = [
-    "msgspec>=0.18.6",
-    "picows>=1.9.0",
+    "msgspec>=0.21.1",
+    "picows>=1.18.0",
 ]
 
 license = "MIT"
+license-files = ["LICENSE"]
 
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -48,7 +46,14 @@ dev = [
     # Docs
     "sphinx",
     "furo",
-    "sphinx-autodoc-typehints"
+    "sphinx-autodoc-typehints",
+
+    # Benchmarking
+    "rich",
+    "matplotlib",
+    "seaborn",
+    "uvloop; sys_platform != 'win32'",
+    "winloop; sys_platform == 'win32'"
 ]
 
 [tool.poe]
@@ -57,7 +62,7 @@ executor.type = "uv"
 [tool.poe.tasks]
 test = "pytest -v -r f"
 cov = "pytest --cov=webshocket --cov-report=xml --cov-report=term-missing -v"
-lint = "ruff check ./src/webshocket"
+lint = "ruff check ./src/webshocket --fix"
 format = "ruff format --line-length 135 ./src/webshocket"
 docs = "sphinx-build -b html docs/source/ docs/build/"
 all = ["format", "lint", "test"]
