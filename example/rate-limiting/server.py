@@ -1,5 +1,4 @@
-"""
-Feature 3: Decorator-Based Rate Limiting
+"""Feature 3: Decorator-Based Rate Limiting
 ==========================================
 Demonstrates:
   - @rate_limit with human-readable periods ("5s", "1m")
@@ -11,9 +10,10 @@ Then: python client.py
 """
 
 import asyncio
+
 import webshocket
 from webshocket import ClientConnection
-from webshocket.rpc import rpc_method, rate_limit
+from webshocket.rpc import rate_limit, rpc_method
 
 
 class RateLimitHandler(webshocket.WebSocketHandler):

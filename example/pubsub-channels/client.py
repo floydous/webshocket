@@ -1,10 +1,10 @@
-"""
-Feature 4: Pub/Sub Channels with Wildcard Support (Client)
+"""Feature 4: Pub/Sub Channels with Wildcard Support (Client)
 ============================================================
 Two clients subscribing to different patterns and teams.
 """
 
 import asyncio
+
 import webshocket
 from webshocket.exceptions import ReceiveTimeoutError
 

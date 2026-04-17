@@ -29,7 +29,6 @@ class recvClientHandler(webshocket.handler.WebSocketHandler):
     async def on_receive(self, connection: webshocket.ClientConnection, packet: webshocket.Packet): ...
 
 
-
 @pytest_asyncio.fixture
 async def handler_server():
     server = webshocket.WebSocketServer(HOST, PORT, clientHandler=customClientHandler)
@@ -209,6 +208,7 @@ async def test_wildcard_subscriptions(default_server) -> None:
         await client_b.close()
         await client_c.close()
 
+
 @pytest.mark.asyncio
 async def test_client_on_receive_decorator(handler_server):
     received_packets = []
@@ -251,14 +251,14 @@ def test_register_non_rpc_raises():
         pass
 
     with pytest.raises(ValueError, match="non-RPC method"):
-        handler.register_rpc_method(plain_func)
+        handler.register_rpc_method(plain_func)  # type: ignore[expected-error]
 
 
 @pytest.mark.asyncio
 async def test_base_handler_on_receive_noop():
     """handler.py:103 — base WebSocketHandler.on_receive is a no-op pass."""
     handler = WebSocketHandler()
-    result = await handler.on_receive(None, None)
+    result = await handler.on_receive(None, None)  # type: ignore[expected-error]
     assert result is None
 
 
@@ -349,5 +349,5 @@ async def test_default_handler_on_receive():
 
     conn = FakeConn()
     pkt = webshocket.Packet(data="hi", source=webshocket.PacketSource.CUSTOM)
-    await handler.on_receive(conn, pkt)
+    await handler.on_receive(conn, pkt)  # type: ignore[expected-error]
     assert not conn._packet_queue.empty()

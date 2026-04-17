@@ -1,5 +1,4 @@
-"""
-Feature 2: Effortless Session State
+"""Feature 2: Effortless Session State
 =====================================
 Demonstrates:
   - Assigning attributes directly to ClientConnection
@@ -11,6 +10,7 @@ Then: python client.py
 """
 
 import asyncio
+
 import webshocket
 from webshocket import ClientConnection
 

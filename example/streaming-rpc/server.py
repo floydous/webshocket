@@ -1,5 +1,4 @@
-"""
-Feature 8: Streaming RPC
+"""Feature 8: Streaming RPC
 ==========================
 Demonstrates:
   - Server-side async generator RPC methods that yield chunks
@@ -11,6 +10,7 @@ Then: python client.py
 """
 
 import asyncio
+
 import webshocket
 from webshocket import ClientConnection
 from webshocket.rpc import rpc_method

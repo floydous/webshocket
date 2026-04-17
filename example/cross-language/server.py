@@ -1,5 +1,4 @@
-"""
-Feature 7: Cross-Language Compatibility (Server)
+"""Feature 7: Cross-Language Compatibility (Server)
 ==================================================
 Demonstrates:
   - A standard Webshocket server that accepts both framework and generic clients
@@ -10,6 +9,7 @@ Then: Open client.html in a browser, or run the Python client
 """
 
 import asyncio
+
 import webshocket
 from webshocket import ClientConnection
 from webshocket.rpc import rpc_method

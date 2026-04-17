@@ -1,5 +1,4 @@
-"""
-Feature 4: Pub/Sub Channels with Wildcard Support
+"""Feature 4: Pub/Sub Channels with Wildcard Support
 ====================================================
 Demonstrates:
   - Subscribing to exact channels and wildcard patterns
@@ -11,6 +10,7 @@ Then: python client.py
 """
 
 import asyncio
+
 import webshocket
 from webshocket import ClientConnection
 from webshocket.rpc import rpc_method

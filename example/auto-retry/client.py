@@ -1,5 +1,4 @@
-"""
-Feature 5: Auto-Retry with Exponential Backoff
+"""Feature 5: Auto-Retry with Exponential Backoff
 =================================================
 Demonstrates:
   - Client automatically retries when connection fails
@@ -15,6 +14,7 @@ Usage:
 """
 
 import asyncio
+
 import webshocket
 
 

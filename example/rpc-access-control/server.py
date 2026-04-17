@@ -1,5 +1,4 @@
-"""
-Feature 1: Powerful RPC with Access Control
+"""Feature 1: Powerful RPC with Access Control
 ============================================
 Demonstrates:
   - Defining RPC methods with @rpc_method()
@@ -11,6 +10,7 @@ Then: python client.py
 """
 
 import asyncio
+
 import webshocket
 from webshocket import ClientConnection
 

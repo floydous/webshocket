@@ -1,6 +1,6 @@
 import curses
-from datetime import datetime
 from contextlib import suppress
+from datetime import datetime
 
 
 class Terminal:
@@ -46,7 +46,7 @@ class Terminal:
                 datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 level,
                 message,
-            )
+            ),
         )
 
         self.display_logs()
@@ -57,7 +57,7 @@ class Terminal:
         self.logWindow.clear()
 
         for idx, (timestamp, _level, msg) in enumerate(
-            self.logs if len(self.logs) < self.height - 3 else self.logs[len(self.logs) - (self.height - 3) :]
+            self.logs if len(self.logs) < self.height - 3 else self.logs[len(self.logs) - (self.height - 3) :],
         ):
             with suppress(Exception):
                 attr_color = 5

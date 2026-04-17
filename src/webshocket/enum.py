@@ -9,6 +9,7 @@ class ConnectionState(IntEnum):
         CONNECTING: The connection is in the process of being established.
         CONNECTED: The connection is successfully established and active.
         CLOSED: The connection has been explicitly closed.
+
     """
 
     DISCONNECTED = 1
@@ -23,6 +24,7 @@ class ServerState(IntEnum):
     Attributes:
         CLOSED: The server is not running and not listening for connections.
         SERVING: The server is actively running and accepting new connections.
+
     """
 
     CLOSED = 1
@@ -35,6 +37,7 @@ class ClientType(Enum):
     Attributes:
         FRAMEWORK: The client uses the webshocket framework.
         GENERIC: The client is a generic client.
+
     """
 
     FRAMEWORK = "Framework"
@@ -50,6 +53,7 @@ class PacketSource(IntEnum):
         UNKNOWN: A packet with an unknown source.
         CUSTOM: A packet manually sent by the server.
         RPC: A packet sent in response to an RPC request.
+
     """
 
     BROADCAST = 1
@@ -60,9 +64,7 @@ class PacketSource(IntEnum):
 
 
 class RPCErrorCode(IntEnum):
-    """
-    Defines standard error codes for the RPC system, inspired by the JSON-RPC 2.0 spec.
-    """
+    """Defines standard error codes for the RPC system, inspired by the JSON-RPC 2.0 spec."""
 
     # Standard JSON-RPC Error Codes
     METHOD_NOT_FOUND = -32601
