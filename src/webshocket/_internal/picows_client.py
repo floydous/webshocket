@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import ssl
 from collections.abc import Awaitable, Callable
 from functools import partial
@@ -11,6 +12,9 @@ from ..exceptions import ConnectionClosedError, ConnectionFailedError
 from ..packets import Packet
 
 ON_RECEIVE_TYPE = Callable[[Packet], Awaitable[None]]
+
+
+_logger = logging.getLogger("webshocket.client")
 
 
 class ClientListener(WSListener):
@@ -26,6 +30,12 @@ class ClientListener(WSListener):
     def on_ws_disconnected(self, transport: WSTransport) -> None:
         self._clientInstance._frame_queue.put_nowait(None)
 
+    def _enqueue(self, payload: bytes) -> None:
+        try:
+            self._clientInstance._frame_queue.put_nowait(payload)
+        except asyncio.QueueFull:
+            _logger.warning("Client frame queue full — dropping frame. Consider increasing frame_qsize or consuming faster.")
+
     def on_ws_frame(self, transport: WSTransport, frame: WSFrame) -> None:
         if frame.msg_type == WSMsgType.CLOSE:
             close_code = frame.get_close_code()
@@ -36,13 +46,13 @@ class ClientListener(WSListener):
             return
 
         if frame.msg_type != WSMsgType.CONTINUATION and frame.fin == 1:
-            self._clientInstance._frame_queue.put_nowait(frame.get_payload_as_bytes())
+            self._enqueue(frame.get_payload_as_bytes())
             return
 
         self._frag_buffer.append(frame.get_payload_as_bytes())
 
         if frame.fin == 1:
-            self._clientInstance._frame_queue.put_nowait(b"".join(self._frag_buffer))
+            self._enqueue(b"".join(self._frag_buffer))
             self._frag_buffer.clear()
 
 
@@ -62,7 +72,7 @@ class client:
         *,
         ca_cert_path: str | None = None,
         ssl_context: ssl.SSLContext | None = None,
-        frame_qsize: int = 64,
+        frame_qsize: int = 8192,
     ):
         self._protocol: WSTransport | None = None
         self._listener_instance: ClientListener | None = None
