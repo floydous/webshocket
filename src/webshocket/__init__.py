@@ -1,43 +1,44 @@
-"""
-A robust, asyncio-based WebSocket library providing easy-to-use
+"""A robust, asyncio-based WebSocket library providing easy-to-use
 client and server abstractions.
 """
 
 import logging
 
-from .rpc import rpc_method, rate_limit
-from .predicate import Has, Is, IsEqual, Any, All
-from .handler import DefaultWebSocketHandler, WebSocketHandler
-from .enum import ServerState, ConnectionState, PacketSource
 from .connection import ClientConnection
-from .packets import Packet, RPCRequest, RPCResponse
+from .enum import ClientType, ConnectionState, PacketSource, RPCErrorCode, ServerState
 from .exceptions import (
-    # Base
-    WebSocketError,
+    ConnectionClosedError,
     # Connection
     ConnectionError,
     ConnectionFailedError,
-    ConnectionClosedError,
     InvalidURIError,
     # Message/Packet
     MessageError,
     PacketError,
     PacketValidationError,
-    # Timeout
-    TimeoutError,
     ReceiveTimeoutError,
     RPCTimeoutError,
     # RPC
+    RateLimitError,
     RPCError,
     RPCMethodNotFoundError,
+    # Timeout
+    TimeoutError,
+    # Base
+    WebSocketError,
+)
+from .handler import DefaultWebSocketHandler, WebSocketHandler
+from .packets import Packet, RPCRequest, RPCResponse
+from .predicate import All, Any, Has, Is, IsEqual
+from .rpc import rate_limit, rpc_method
+from .websocket import (
+    client as WebSocketClient,
 )
 from .websocket import (
     server as WebSocketServer,
-    client as WebSocketClient,
 )
 
-
-__version__ = "0.5.1"
+__version__ = "0.5.2"
 __author__ = "Floydous"
 __license__ = "MIT"
 
@@ -49,6 +50,8 @@ __all__ = [
     "ServerState",
     "ConnectionState",
     "PacketSource",
+    "ClientType",
+    "RPCErrorCode",
     # Exceptions
     "WebSocketError",
     "ConnectionError",
@@ -62,6 +65,7 @@ __all__ = [
     "ReceiveTimeoutError",
     "RPCTimeoutError",
     "RPCError",
+    "RateLimitError",
     "RPCMethodNotFoundError",
     # Connection
     "ClientConnection",

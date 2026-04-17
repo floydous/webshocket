@@ -2,6 +2,35 @@
 
 All notable changes to the `webshocket` library will be documented in this file.
 
+## [0.5.2] - 2026-04-17
+
+### Performance Gains
+**v0.5.2** represents a massive leap in raw throughput and memory efficiency. By eliminating heap allocations and consolidating the serialization/fragmentation pipeline, Webshocket now hits staggering numbers:
+- **RPC:** ~45,000 RPCs/s at 1.1 ms latency (asyncio, 50 concurrent clients)
+- **Streaming:** 289 MB/s on asyncio, 421 MB/s with winloop
+
+> Measured on AMD Ryzen 5 5600G, 14 GB RAM, Windows, Python 3.13. Results vary by hardware.
+
+### Changed
+
+- **Zero-Allocation Serialization**: Replaced `msgspec.encode()` with `encode_into()` using a pre-allocated `bytearray` per connection, eliminating heap allocations on every send.
+- **Unified `_send_rpc_response` Fast Path**: Merged `_send_rpc_response` and `_send_rpc_packet` into a single method that encodes directly into the per-connection buffer.
+- **Extracted `_write` Primitive**: Consolidated all fragmentation logic into `ClientConnection._write()`. All send paths delegate to it.
+- **Broadcast & Publish Serialize-Once**: Serialize the `Packet` once per wire format, then fan out pre-encoded bytes to all recipients.
+- **Wire Format Reduction**: Enabled `omit_defaults=True` on `Packet`, reducing typical RPC payload size by ~20-35%.
+- **Client Frame Queue Hardening**: Increased client `_frame_queue` capacity to 8192 for burst tolerance. Added graceful `QueueFull` handling (log + drop) to prevent process crashes at the sync/async boundary.
+- **Python 3.10 Support**: Replaced `typing.Self` with a string literal return annotation. Lowered `requires-python` to `>=3.10`. Added 3.10 to CI matrix.
+
+### Added
+
+- **`RateLimitError`**, **`ClientType`**, **`RPCErrorCode`** exported from `webshocket` top-level.
+- **`DEFAULT_ENCODE_BUFFER_SIZE`** constant (512 bytes) in `constant.py`.
+- **Benchmark Suite**: `benchmark/benchmark.py` with 2×2 grid (RPC throughput, RPC latency, stream throughput, stream depth) and `benchmark/README.md` with event loop selection guidance.
+
+### Fixed
+
+- **ReadTheDocs Build**: `.readthedocs.yaml` now installs the package itself (`method: pip, path: .`), fixing empty API docs on the hosted site.
+
 ## [0.5.1] - 2026-04-14
 
 ### Added
