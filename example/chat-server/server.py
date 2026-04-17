@@ -1,7 +1,7 @@
 import asyncio
-import webshocket
 import logging
 
+import webshocket
 from webshocket.packets import Packet
 from webshocket.predicate import Has
 
@@ -14,7 +14,7 @@ class clientHandler(webshocket.WebSocketHandler):
         if connection.session_state.get("username"):
             logging.info(f"User '{connection.session_state['username']}' has left the chat.")
 
-            await self.broadcast(
+            self.broadcast(
                 f"User '{connection.session_state['username']}' has left the chat.",
                 exclude=tuple(
                     conn for conn in self.clients if connection.session_state.get("username") is None
@@ -28,7 +28,7 @@ class clientHandler(webshocket.WebSocketHandler):
         logging.info(f"Received message from {connection.username}: {packet.data}")
 
         message: str = f"{connection.username}: {packet.data}"
-        await self.publish(channel=connection.subscribed_channel, data=message)
+        self.publish(channel=connection.subscribed_channel, data=message)
 
     @webshocket.rpc_method(alias_name="trigger_command", requires=Has("username"))
     async def trigger_command(self, connection: webshocket.ClientConnection, command_name: str, *args):
@@ -46,11 +46,11 @@ class clientHandler(webshocket.WebSocketHandler):
 
             return help_message
 
-        elif command_name == "rooms":
+        if command_name == "rooms":
             active_rooms: str = ", ".join([name for name in self.channels.keys()])
             return "Active rooms: " + active_rooms
 
-        elif command_name == "join":
+        if command_name == "join":
             if not len(args) >= 1:
                 return "Usage: /join <room_name>"
 
@@ -65,10 +65,10 @@ class clientHandler(webshocket.WebSocketHandler):
             connection.subscribe(room_name)
             return f"You joined room '{room_name}'."
 
-        elif command_name == "users":
-            return f"Connected users: {', '.join([conn.username for conn in self.clients if getattr(conn, 'username') is not None])}"
+        if command_name == "users":
+            return f"Connected users: {', '.join([conn.username for conn in self.clients if conn.username is not None])}"
 
-        elif command_name == "msg":
+        if command_name == "msg":
             if not len(args) >= 2:
                 return "Usage: /msg <username> <message>"
 
@@ -79,13 +79,12 @@ class clientHandler(webshocket.WebSocketHandler):
                 if (
                     _username := client.session_state.get("username")
                 ) == target_username and _username != connection.username:
-                    await client.send(f"Private message from {connection.username}: {message}")
+                    client.send(f"Private message from {connection.username}: {message}")
                     return f"Private message sent to {target_username}: {message}"
 
             return f"User '{target_username}' not found."
 
-        else:
-            return f"Unknown command: {command_name}. Type /help for commands."
+        return f"Unknown command: {command_name}. Type /help for commands."
 
     @webshocket.rpc_method(alias_name="register_user")
     async def register(self, connection: webshocket.ClientConnection, username: str) -> bool:
@@ -94,7 +93,7 @@ class clientHandler(webshocket.WebSocketHandler):
 
         logging.info(f"User '{username}' has joined the chat.")
 
-        await self.broadcast(
+        self.broadcast(
             f"User '{username}' has joined the chat.",
             exclude=tuple(conn for conn in self.clients if conn.session_state.get("username") is None),
         )

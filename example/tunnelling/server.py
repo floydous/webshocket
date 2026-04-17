@@ -1,5 +1,4 @@
-"""
-Feature 6: Integrated Tunnelling & Deployment
+"""Feature 6: Integrated Tunnelling & Deployment
 ================================================
 Demonstrates:
   - Running a Webshocket server on 0.0.0.0 for external access
@@ -14,6 +13,7 @@ Run:  python server.py
 """
 
 import asyncio
+
 import webshocket
 from webshocket import ClientConnection
 from webshocket.rpc import rpc_method
@@ -21,10 +21,10 @@ from webshocket.rpc import rpc_method
 
 class DeployHandler(webshocket.WebSocketHandler):
     async def on_connect(self, connection: ClientConnection):
-        print(f"[Server] Client connected: {connection.address}")
+        print(f"[Server] Client connected: {connection.remote_address}")
 
     async def on_disconnect(self, connection: ClientConnection):
-        print(f"[Server] Client disconnected: {connection.address}")
+        print(f"[Server] Client disconnected: {connection.remote_address}")
 
     @rpc_method()
     async def ping(self, connection: ClientConnection):

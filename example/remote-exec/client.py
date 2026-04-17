@@ -2,18 +2,16 @@ import asyncio
 import json
 import logging
 
-from webshocket.websocket import client
 from webshocket.packets import Packet
+from webshocket.websocket import client
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 
 async def on_receive_message(packet: Packet):
+    """Callback function to handle messages received from the server.
     """
-    Callback function to handle messages received from the server.
-    """
-
     message = packet.data
 
     try:
@@ -42,7 +40,7 @@ async def on_receive_message(packet: Packet):
     except json.JSONDecodeError:
         logging.warning(f"Received non-JSON message: {message}")
     except Exception as e:
-        logging.error(f"Error processing received message: {e}")
+        logging.exception(f"Error processing received message: {e}")
 
 
 async def main():
@@ -59,12 +57,12 @@ async def main():
             command = await asyncio.to_thread(input, "> ")
 
             if command.lower() == "exit":
-                await remote_exec_client.send(command)
+                remote_exec_client.send(command)
                 break
-            await remote_exec_client.send(command)
+            remote_exec_client.send(command)
 
     except ConnectionRefusedError:
-        logging.error("Connection refused. Is the server running?")
+        logging.exception("Connection refused. Is the server running?")
     except Exception as e:
         logging.critical(f"Client crashed: {e}")
     finally:

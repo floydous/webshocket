@@ -1,5 +1,6 @@
-import webshocket
 import asyncio
+
+import webshocket
 
 
 async def main():
@@ -11,8 +12,8 @@ async def main():
 
         # ------------------------------------------
 
-        response = await client.send_rpc("echo", "Hello")
-        print("RPC Response: " + response.data)
+        response_packet = await client.send_rpc("echo", "Hello")
+        print("RPC Response: " + response_packet.response)
 
 
 if __name__ == "__main__":

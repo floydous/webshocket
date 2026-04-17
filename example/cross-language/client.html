@@ -60,9 +60,9 @@
             try {
                 const packet = JSON.parse(data);
                 if (packet.rpc && packet.rpc.response !== undefined) {
-                    log(`[RPC Response] ${packet.rpc.method}: ${JSON.stringify(packet.rpc.response)}`);
+                    log(`[RPC Response] ${packet.call_id}: ${JSON.stringify(packet.rpc.response)}`);
                 } else {
-                    log(`[Message] ${JSON.stringify(packet)}`);
+                    log(`[Message] ${packet.call_id}`);
                 }
             } catch {
                 log(`[Raw] ${data}`);

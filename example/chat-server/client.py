@@ -1,5 +1,7 @@
 import asyncio
+
 import utils
+
 import webshocket
 
 WEBSOCKET_URL = "ws://localhost:5000"
@@ -31,14 +33,14 @@ async def main() -> None:
 
             if user_input.startswith("/"):
                 splited_input = user_input.split(" ")
-                response = await websocketClient.send_rpc(
+                packet = await websocketClient.send_rpc(
                     "trigger_command",
                     splited_input[0][1:],
                     *splited_input[1:],
                 )
 
-                if response.data:
-                    lines = response.data.splitlines()
+                if packet.response:
+                    lines = packet.response.splitlines()
                     Terminal.console_log(lines[0], level="INFO")
 
                     for line in lines[1:]:
@@ -46,12 +48,11 @@ async def main() -> None:
 
                 continue
 
-            elif user_input.lower() == "exit":
+            if user_input.lower() == "exit":
                 Terminal.console_log("Disconnecting...", level="INFO")
                 break
 
-            else:
-                await websocketClient.send(user_input)
+            websocketClient.send(user_input)
 
     except ConnectionRefusedError:
         Terminal.console_log("Connection refused. Is the server running?", level="ERROR")
@@ -72,18 +73,17 @@ async def regist_username(websocketClient: webshocket.WebSocketClient):
             await websocketClient.close()
             return
 
-        response = await websocketClient.send_rpc("register_user", username)
+        packet = await websocketClient.send_rpc("register_user", username)
 
-        if response.data is True:
+        if packet.response is True:
             Terminal.console_log(f"Connected as {username}.", level="INFO")
             break
 
-        else:
-            Terminal.logs.clear()
-            Terminal.console_log(
-                "Username already taken. Please choose another.",
-                level="ERROR",
-            )
+        Terminal.logs.clear()
+        Terminal.console_log(
+            "Username already taken. Please choose another.",
+            level="ERROR",
+        )
 
 
 if __name__ == "__main__":
