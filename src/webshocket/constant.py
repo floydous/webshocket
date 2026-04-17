@@ -23,3 +23,21 @@ DEFAULT_CHUNK_SIZE = 64 * 1024  # 64 KB
 # and will receive raw JSON instead.
 
 DEFAULT_WEBSHOCKET_SUBPROTOCOL = "webshocket.v1"
+
+
+# Serialization Buffer
+#
+# Initial size of the pre-allocated bytearray used by `serialize()` to avoid
+# per-message heap allocations. `msgspec.Encoder.encode_into()` writes directly
+# into this buffer, and will automatically grow it if a message exceeds the
+# current capacity (the buffer never shrinks back).
+#
+# Why 512 bytes:
+#   - A typical RPC response Packet (with omit_defaults) is ~80-200 bytes,
+#     so 512 comfortably fits the vast majority of messages without reallocation
+#   - Small enough that the memory footprint is negligible (one buffer per process)
+#   - msgspec uses doubling growth when the buffer is too small, so even if the
+#     first oversized message triggers a resize, subsequent messages reuse the
+#     enlarged buffer at zero cost
+
+DEFAULT_ENCODE_BUFFER_SIZE = 512
