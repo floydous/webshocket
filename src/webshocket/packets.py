@@ -1,6 +1,7 @@
-import msgspec
+from collections.abc import Sequence
+from typing import Any, Generic, TypeVar, cast
 
-from typing import Generic, Optional, Any, TypeVar, Sequence, cast
+import msgspec
 from msgspec import field
 
 from .enum import PacketSource, RPCErrorCode
@@ -23,7 +24,7 @@ class RPCResponse(msgspec.Struct, tag="response", gc=False):
 
     call_id: str
 
-    response: Optional[Any] = None
+    response: Any = None
     error: None | RPCErrorCode = None
 
     is_stream: bool = False
@@ -33,7 +34,7 @@ class RPCResponse(msgspec.Struct, tag="response", gc=False):
 RType = TypeVar("RType", bound=RPCRequest | RPCResponse)
 
 
-class Packet(Generic[RType], msgspec.Struct, gc=False):
+class Packet(msgspec.Struct, Generic[RType], gc=False, omit_defaults=True):
     """A structured data packet for WebSocket communication.
 
     Attributes:
@@ -43,16 +44,17 @@ class Packet(Generic[RType], msgspec.Struct, gc=False):
         timestamp (float): The timestamp when the packet was created.
         correlation_id (uuid.UUID | None): The correlation ID associated with the packet.
         rpc (RType | None): Optional RPC request or response data.
+
     """
 
     source: PacketSource
 
     data: Any = None
-    rpc: Optional[RType] = None
-    channel: Optional[str] = None
+    rpc: RType | None = None
+    channel: str | None = None
 
-    timestamp: Optional[float] = None
-    correlation_id: Optional[str] = None
+    timestamp: float | None = None
+    correlation_id: str | None = None
 
 
 _encoder = msgspec.msgpack.Encoder()
@@ -74,20 +76,21 @@ def deserialize(data: bytes) -> Packet:
     Returns:
         A BaseModel object of the specified type if deserialization and
         validation are successful.
+
     """
-    return cast(Packet, _decoder.decode(data))
+    return cast("Packet", _decoder.decode(data))
 
 
 def serialize(base_model: msgspec.Struct) -> bytes:
-    """Serializes a BaseModel object into a bytes.
+    """Serializes a BaseModel object into msgpack bytes.
 
-    Encode the given BaseModel object into a byte array using Msgpack.
+    Encode the given BaseModel object into a byte string using Msgpack.
 
     Args:
         base_model: The BaseModel object to be serialized.
 
     Returns:
-        A byte array of the serialized BaseModel object.
-    """
+        A bytes object containing the serialized data.
 
+    """
     return _encoder.encode(base_model)
