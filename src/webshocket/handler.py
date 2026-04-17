@@ -10,8 +10,9 @@ from typing import (
     cast,
 )
 
+from .enum import ClientType
 from .exceptions import PacketError
-from .packets import Packet, PacketSource
+from .packets import Packet, PacketSource, _json_encoder, serialize
 from .typing import RPC_Function, RPC_Predicate, RPCMethod, SessionState, Serializable
 
 if TYPE_CHECKING:
@@ -28,9 +29,22 @@ class WebSocketHandler(Generic[TState]):
     Subclasses should override the lifecycle methods (`on_connect`, `on_receive`, `on_disconnect`)
     to handle WebSocket events.
 
+    .. code-block:: python
+
+        class MyHandler(WebSocketHandler):
+            async def on_connect(self, connection: ClientConnection):
+                print(f"Client {connection.uid} connected")
+
+            async def on_receive(self, connection: ClientConnection, packet: Packet):
+                print(f"Received: {packet.data}")
+
+            @rpc_method()
+            async def ping(self, connection: ClientConnection):
+                return "pong"
+
     Attributes:
-        clients (Set[ClientConnection]): A set of all currently connected clients managed by this handler.
-        channels (Dict[str, Set[ClientConnection]]): A dictionary mapping channel names to sets of subscribed clients.
+        clients (set[ClientConnection]): A set of all currently connected clients managed by this handler.
+        channels (dict[str, set[ClientConnection]]): A dictionary mapping channel names to sets of subscribed clients.
 
     """
 
@@ -115,12 +129,26 @@ class WebSocketHandler(Generic[TState]):
         predicate: RPC_Predicate | None = None,
         **kwargs,
     ) -> None:
-        """Broadcasts a message to all connected clients, with optional exclusions.
+        """Broadcasts a message to all connected clients.
+
+        This method sends the provided data to every client currently connected to this handler.
+        You can optionally exclude specific clients or filter recipients using a predicate.
+
+        .. code-block:: python
+
+            # Broadcast to everyone
+            self.broadcast("Server is restarting!")
+
+            # Broadcast to everyone EXCEPT the sender
+            self.broadcast("Someone joined", exclude=(connection,))
+
+            # Broadcast only to admins using a predicate
+            self.broadcast("Admin alert", predicate=Is("is_admin"))
 
         Args:
             data (Serializable): The message data to broadcast.
-            exclude (Optional[tuple[ClientConnection, ...]]): A tuple of client connections
-                to exclude from the broadcast. Defaults to None.
+            exclude (Optional[tuple[ClientConnection, ...]]): Clients to exclude from the broadcast.
+            predicate (Optional[RPC_Predicate]): A predicate function to filter recipients.
             **kwargs: Additional arguments to pass to the Packet constructor.
 
         Raises:
@@ -138,6 +166,10 @@ class WebSocketHandler(Generic[TState]):
         if data.source != PacketSource.BROADCAST:
             raise PacketError("Cannot broadcast non-broadcast packet.")
 
+        # Serialize once per format, send pre-encoded bytes to each client
+        encoded_msgpack: bytes | None = None
+        encoded_json: bytes | None = None
+
         for client in self.clients:
             if client in exclude_set:
                 continue
@@ -145,7 +177,16 @@ class WebSocketHandler(Generic[TState]):
             if predicate and not predicate(client):
                 continue
 
-            client.send(data)
+            if client.client_type is ClientType.FRAMEWORK:
+                if encoded_msgpack is None:
+                    encoded_msgpack = serialize(data)
+
+                client._write(encoded_msgpack)
+            else:
+                if encoded_json is None:
+                    encoded_json = _json_encoder.encode(data)
+
+                client._write(encoded_json)
 
     def publish(
         self,
@@ -156,11 +197,25 @@ class WebSocketHandler(Generic[TState]):
     ) -> None:
         """Publishes a message to all clients subscribed to a specific channel.
 
+        This method sends data only to clients that have explicitly subscribed to the target channel
+        (or a wildcard pattern matching the channel).
+
+        .. code-block:: python
+
+            # Publish to a single room
+            self.publish("room1", "Hello room 1")
+
+            # Publish to multiple rooms, excluding the sender
+            self.publish(["room1", "room2"], "Hello!", exclude=(connection,))
+
+            # Publish to a room, but only to editors
+            self.publish("docs.123", "Edit made", predicate=Is("is_editor"))
+
         Args:
             channel (str | Iterable[str]): The name of the channel(s) to publish the message to.
             data (Serializable): The message data to publish.
-            exclude (Optional[tuple[ClientConnection, ...]]): A tuple of client connections
-                to exclude from the publication. Defaults to None.
+            exclude (Optional[tuple[ClientConnection, ...]]): Clients to exclude from the publication.
+            predicate (Optional[RPC_Predicate]): A predicate function to filter recipients.
 
         Raises:
             PacketError: If attempting to publish a packet with a source other than PacketSource.CHANNEL.
@@ -181,6 +236,10 @@ class WebSocketHandler(Generic[TState]):
             for pattern in self._get_matching_patterns(channel):
                 recipients.update(self.patterns.get(pattern, ()))
 
+            # Serialize once per format per channel, send pre-encoded bytes to each recipient
+            encoded_msgpack: bytes | None = None
+            encoded_json: bytes | None = None
+
             for client in recipients:
                 if client in exclude_set:
                     continue
@@ -188,7 +247,14 @@ class WebSocketHandler(Generic[TState]):
                 if predicate and not predicate(client):
                     continue
 
-                client.send(packet)
+                if client.client_type is ClientType.FRAMEWORK:
+                    if encoded_msgpack is None:
+                        encoded_msgpack = serialize(packet)
+                    client._write(encoded_msgpack)
+                else:
+                    if encoded_json is None:
+                        encoded_json = _json_encoder.encode(packet)
+                    client._write(encoded_json)
 
     def subscribe(self, client: "ClientConnection", channel: str | Iterable) -> None:
         """Subscribes a client to one or more channels.
