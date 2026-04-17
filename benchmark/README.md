@@ -1,7 +1,7 @@
 # Webshocket Benchmarks
 
+![Benchmark Result](https://raw.githubusercontent.com/floydous/webshocket/refs/heads/main/benchmark/benchmark_results.png)
 This directory contains the performance benchmark for the webshocket framework.
-
 ## Running the Benchmark
 
 ```bash
