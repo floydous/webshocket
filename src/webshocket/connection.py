@@ -9,11 +9,11 @@ from picows import WSCloseCode, WSMsgType, WSTransport
 
 from webshocket.packets import _json_decoder, _json_encoder
 
-from .constant import DEFAULT_CHUNK_SIZE
+from .constant import DEFAULT_CHUNK_SIZE, DEFAULT_ENCODE_BUFFER_SIZE
 from .enum import ClientType, ConnectionState, PacketSource
 from .exceptions import ConnectionClosedError, ReceiveTimeoutError
 from .handler import DefaultWebSocketHandler
-from .packets import Packet, RPCResponse, deserialize, serialize
+from .packets import Packet, RPCResponse, _encoder, deserialize
 from .typing import Serializable
 
 if TYPE_CHECKING:
@@ -31,6 +31,18 @@ class ClientConnection(Generic[TState]):
     to session-specific state, channel management, and communication methods.
     It supports dynamic attribute access which maps to an internal session state dictionary.
 
+    .. code-block:: python
+
+        async def on_receive(self, connection: ClientConnection, packet: Packet):
+            # Access session state directly
+            connection.username = "alice"
+
+            # Subscribe to a channel
+            connection.subscribe("chat-room")
+
+            # Send data
+            connection.send({"status": "ok"})
+
     Attributes:
         client_type (ClientType): The type of client (e.g., FRAMEWORK, GENERIC).
         connection_state (ConnectionState): The current state of the connection (CONNECTED, CLOSED, etc.).
@@ -45,6 +57,7 @@ class ClientConnection(Generic[TState]):
 
     __slots__ = (
         "_active_stream",
+        "_encode_buffer",
         "_handler",
         "_packet_queue",
         "_payload_queue",
@@ -83,6 +96,7 @@ class ClientConnection(Generic[TState]):
         object.__setattr__(self, "_payload_queue", asyncio.Queue[bytes](maxsize=1024))
         object.__setattr__(self, "_packet_queue", asyncio.Queue[Packet](maxsize=packet_qsize))
         object.__setattr__(self, "_active_stream", {})
+        object.__setattr__(self, "_encode_buffer", bytearray(DEFAULT_ENCODE_BUFFER_SIZE))
         object.__setattr__(self, "_protocol", websocket_protocol)
         object.__setattr__(self, "_handler", handler)
 
@@ -120,11 +134,61 @@ class ClientConnection(Generic[TState]):
         """
         return self._subscribed_channels.copy()
 
+    def _write(self, data: bytes | bytearray, chunk_size: int = DEFAULT_CHUNK_SIZE) -> None:
+        """Writes serialized bytes to the transport with automatic fragmentation.
+
+        This is the lowest-level send primitive. All higher-level send methods
+        serialize their data and then delegate to this method.
+
+        Args:
+            data: Serialized bytes to write.
+            chunk_size: Max WebSocket frame size before splitting into
+                continuation frames.
+
+        """
+        if len(data) <= chunk_size:
+            self._protocol.send(WSMsgType.BINARY, data)
+            return
+
+        payload = memoryview(data)
+        payload_length = len(payload)
+        offset = chunk_size
+
+        self._protocol.send(WSMsgType.BINARY, payload[:chunk_size], fin=False)
+
+        while offset + chunk_size < payload_length:
+            self._protocol.send(
+                WSMsgType.CONTINUATION,
+                payload[offset : offset + chunk_size],
+                fin=False,
+            )
+            offset += chunk_size
+
+        self._protocol.send(
+            WSMsgType.CONTINUATION,
+            payload[offset:],
+            fin=True,
+        )
+
     def send(self, data: Serializable, chunk_size: int = DEFAULT_CHUNK_SIZE) -> None:
         """Sends data over the connection.
 
-        Non-Packet payloads are wrapped in a `Packet` before serialization.
-        Framework clients receive msgpack; generic clients receive JSON.
+        Non-Packet payloads are automatically wrapped in a `Packet` before serialization.
+        Framework clients receive fast msgpack bytes; generic clients receive JSON strings.
+
+        .. code-block:: python
+
+            # Send a raw string or dict
+            connection.send("Hello World!")
+            connection.send({"status": "success"})
+
+            # Or send a pre-constructed Packet
+            packet = Packet(data="Custom", source=PacketSource.CUSTOM)
+            connection.send(packet)
+
+        Args:
+            data (Serializable): The data to send.
+            chunk_size (int): Max WebSocket frame size before fragmentation. Defaults to 64 KB.
         """
 
         if isinstance(data, Packet):
@@ -137,73 +201,56 @@ class ClientConnection(Generic[TState]):
             )
 
         if self.client_type is ClientType.FRAMEWORK:
-            response = serialize(packet)
+            _encoder.encode_into(packet, self._encode_buffer)
+            self._write(self._encode_buffer, chunk_size)
         else:
-            response = _json_encoder.encode(packet)
+            self._write(_json_encoder.encode(packet), chunk_size)
 
-        if len(response) <= chunk_size:
-            self._protocol.send(WSMsgType.BINARY, response)
-            return
-
-        # ---------------------------------------------------------
-
-        payload = memoryview(response)
-        payload_length = len(payload)
-        offset = chunk_size
-
-        self._protocol.send(WSMsgType.BINARY, payload[:chunk_size], fin=False)
-
-        while offset + chunk_size < payload_length:
-            self._protocol.send(
-                WSMsgType.CONTINUATION,
-                payload[offset : offset + chunk_size],
-                fin=False,
-            )
-
-            offset += chunk_size
-
-        self._protocol.send(
-            WSMsgType.CONTINUATION,
-            payload[offset:],
-            fin=True,
-        )
-
-    def _send_rpc_response(self, rpc_response: "RPCResponse") -> None:
+    def _send_rpc_response(self, rpc_response: "RPCResponse", chunk_size: int = DEFAULT_CHUNK_SIZE) -> None:
         """Sends an RPC response back to the client.
 
+        For framework clients, encodes directly into the per-connection buffer
+        bypassing the generic send() path. Falls back to JSON for generic clients.
+
         Args:
-            rpc_response (RPCResponse): The RPC response object to send.
+            rpc_response: The RPC response object to send.
+            chunk_size: Max WebSocket frame size before fragmentation.
 
         """
-        packet = Packet(
-            source=PacketSource.RPC,
-            rpc=rpc_response,
-        )
+        packet = Packet(source=PacketSource.RPC, rpc=rpc_response)
 
-        self.send(packet)
+        if self.client_type is ClientType.FRAMEWORK:
+            _encoder.encode_into(packet, self._encode_buffer)
+            self._write(self._encode_buffer, chunk_size)
+        else:
+            self._write(_json_encoder.encode(packet), chunk_size)
 
     async def recv(self, timeout: float | None = 30.0) -> Packet:
         """Receives the next message and parses it into a validated Packet object.
 
-        This method receives the incoming data from the client and parse it into
-        a validated Packet object, if the data is raw, meaning it's coming outside
-        of the client module, the data will be wrapped with the source of Packet
-        set to CUSTOM.
+        This method receives incoming data and parses it into a validated Packet.
+        If the data is plain JSON or msgpack, it's wrapped in a Packet with source set to CUSTOM.
+
+        .. code-block:: python
+
+            # Only works if using DefaultWebSocketHandler (no on_receive callback)
+            try:
+                packet = await connection.recv(timeout=10.0)
+                print(packet.data)
+            except ReceiveTimeoutError:
+                print("No message received within timeout")
 
         Args:
-            timeout: Max seconds to wait for a message. Defaults to 30.
+            timeout (float | None): Max seconds to wait for a message. Defaults to 30.0. Use None to wait indefinitely.
 
         Raises:
-            ConnectionError: If the client is not connected.
-            TimeoutError: If no message is received within the timeout period.
-            MessageError: If the received data fails to parse as a valid Packet.
+            ConnectionClosedError: If the client is not connected.
+            ReceiveTimeoutError: If no message is received within the timeout period.
 
         Returns:
-            A validated Packet object.
+            Packet: A validated Packet object containing the received data.
 
         """
-        # if self.on_receive_callback:
-        #     raise TypeError("Cannot use manual recv() when an on_receive callback is active.")
         packet: Packet
 
         if not self._protocol or self.connection_state != ConnectionState.CONNECTED:
@@ -238,9 +285,17 @@ class ClientConnection(Generic[TState]):
     def subscribe(self, channel: str | Iterable[str]) -> bool:
         """A shortcut method for this connection to join one or more channels.
 
-        Args:
-            channel: A string or iterable that contains lists of channel to join.
+        .. code-block:: python
 
+            connection.subscribe("room1")
+            connection.subscribe(["room2", "room3"])
+            connection.subscribe("news.*")  # Wildcard pattern
+
+        Args:
+            channel (str | Iterable[str]): A string or iterable that contains lists of channel to join.
+
+        Returns:
+            bool: True if subscribed successfully, False if the max channel limit is reached.
         """
         # 0 means no limit
         if self.max_subscribed_channels > len(self._subscribed_channels) and self.max_subscribed_channels != 0:
@@ -252,8 +307,13 @@ class ClientConnection(Generic[TState]):
     def unsubscribe(self, channel: str | Iterable[str]) -> None:
         """A shortcut method for this connection to leave one or more channels.
 
+        .. code-block:: python
+
+            connection.unsubscribe("room1")
+            connection.unsubscribe(["room2", "room3"])
+
         Args:
-            channel: A string or iterable that contains lists of channel to leave.
+            channel (str | Iterable[str]): A string or iterable that contains lists of channel to leave.
 
         """
         self._handler.unsubscribe(self, channel)
