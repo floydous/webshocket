@@ -5,12 +5,10 @@ Installation
 Prerequisites
 =============
 
-Webshocket requires **Python 3.8** or higher. It is built on top of the modern `asyncio` stack and leverages type hinting extensively.
+Webshocket requires **Python 3.10** or higher.
 
 Installing via pip
 ==================
-
-The easiest way to install Webshocket is from PyPI:
 
 .. code-block:: bash
 
@@ -19,19 +17,23 @@ The easiest way to install Webshocket is from PyPI:
 Installing from Source
 ======================
 
-If you want the latest development version, you can install directly from GitHub:
-
 .. code-block:: bash
 
    git clone https://github.com/floydous/webshocket.git
    cd webshocket
    pip install .
 
-Performance Optimization
-========================
+Performance Tip
+===============
 
-For production environments on Linux or macOS, we highly recommend installing `uvloop` for a significant performance boost. Webshocket is fully compatible with it.
+On Linux or macOS, install ``uvloop`` for a 20-30% throughput boost:
 
 .. code-block:: bash
 
    pip install uvloop
+
+On Windows, ``winloop`` provides the equivalent benefit:
+
+.. code-block:: bash
+
+   pip install winloop

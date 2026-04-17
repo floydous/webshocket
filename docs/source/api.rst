@@ -28,20 +28,47 @@ Handler Interface
    :undoc-members:
    :show-inheritance:
 
-Data Structures & Type Definitions
-----------------------------------
+RPC & Rate Limiting
+--------------------
+
+.. automodule:: webshocket.rpc
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Predicates
+----------
+
+.. automodule:: webshocket.predicate
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Data Structures
+----------------
 
 .. automodule:: webshocket.packets
    :members:
    :undoc-members:
    :show-inheritance:
 
+Exceptions
+----------
+
 .. automodule:: webshocket.exceptions
    :members:
    :undoc-members:
    :show-inheritance:
 
+Enums & Constants
+-----------------
+
 .. automodule:: webshocket.enum
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. automodule:: webshocket.constant
    :members:
    :undoc-members:
    :show-inheritance:

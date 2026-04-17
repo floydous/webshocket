@@ -10,9 +10,7 @@ Welcome to Webshocket!
    :target: https://pypi.org/project/webshocket/
    :alt: Supported Python Versions
 
-**Webshocket** is a production-grade, `asyncio`-based Python library that reimagines WebSocket programming. It abstracts away the low-level handshake and protocol details, providing a **socket-like, object-oriented API** that feels familiar to developers while offering powerful features out of the box.
-
-Whether you are building a real-time chat app, an IoT device command center, or a high-performance streaming server, Webshocket scales with you.
+**Webshocket** is a lightweight Python framework for WebSocket-based applications. It gives you a high-level API for remote procedure calls, per-client session state, pub/sub channels, and efficient message broadcasting — all built on top of ``asyncio`` and ``picows``.
 
 .. note::
    This documentation is for version |release|.
@@ -20,12 +18,15 @@ Whether you are building a real-time chat app, an IoT device command center, or 
 Key Features
 ============
 
-* **Modern AsyncIO Design**: Built on top of `asyncio` and `picows` for high-performance, non-blocking I/O.
-* **Standard Security**: Full support for **SSL/TLS** via standard Python `SSLContext`, including Mutual TLS (mTLS).
-* **Pub/Sub System**: Built-in **Channels** and **Broadcasting** capabilities make multi-user chat and notification systems invalid trivial.
-* **Stateful Connections**: Every client connection is a rich object capable of storing state (like `username`, `auth_token`) directly on the socket instance.
-* **RPC Framework**: Call server-side Python functions directly from the client using the built-in **Remote Procedure Call (RPC)** decorator system.
-* **Connection Stability**: Automated **Ping/Pong** heartbeats ensure broken connections are detected and cleaned up instantly.
+* **RPC Framework** — Call server-side functions from the client with ``send_rpc()``. Supports streaming, rate limiting, and access control.
+* **Streaming RPC** — Server methods can ``yield`` values as async generators. The client iterates over chunks in real-time.
+* **Session State** — Attach data directly to connection objects (``connection.username = "alice"``). No external state store needed.
+* **Pub/Sub Channels** — Built-in channels with wildcard pattern matching (``news.*``, ``alerts.region.?``).
+* **Rate Limiting** — Decorator-based rate limiting with human-readable periods (``"5/1m"``).
+* **Access Control** — Protect RPC methods with composable predicates (``Is``, ``Has``, ``IsEqual``, ``Any``, ``All``).
+* **Auto-Retry** — Client reconnects automatically with exponential backoff.
+* **Cross-Language** — Framework clients use fast msgpack. Any WebSocket client (JS, Java, C#) can connect with plain JSON.
+* **Secure by Default** — Full SSL/TLS support via standard Python ``SSLContext``.
 
 User Guide
 ==========
@@ -35,7 +36,8 @@ User Guide
    :caption: Contents:
 
    installation
-   examples
+   quickstart
+   features
    api
 
 Indices and tables

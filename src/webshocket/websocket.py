@@ -48,6 +48,14 @@ class server(Generic[H]):
     This class provides functionality to start, manage, and close a WebSocket server,
     integrating with a custom WebSocketHandler for application-specific logic.
     It supports both secure (WSS) and unsecure (WS) connections.
+
+    .. code-block:: python
+
+        server = WebSocketServer("localhost", 5000, clientHandler=MyHandler)
+
+        async with server:
+            await server.serve_forever()
+
     """
 
     __slots__ = (
@@ -188,16 +196,16 @@ class server(Generic[H]):
 
             if rpc_function.is_stream:
                 connection._active_stream[call_id] = asyncio.current_task()
-                rpc_packet: Packet[RPCResponse] = Packet(source=PacketSource.RPC, rpc=RPCResponse(call_id=call_id, is_stream=True))
+                rpc_response = RPCResponse(call_id=call_id, is_stream=True)
 
                 try:
                     async for stdout in rpc_function.func(connection, *rpc_request.args, **cast("dict[str, Any]", rpc_request.kwargs)):
-                        cast("RPCResponse", rpc_packet.rpc).response = stdout
-                        connection.send(rpc_packet)
+                        rpc_response.response = stdout
+                        connection._send_rpc_response(rpc_response)
 
-                    cast("RPCResponse", rpc_packet.rpc).is_end = True
-                    rpc_packet.data = None
-                    connection.send(rpc_packet)
+                    rpc_response.is_end = True
+                    rpc_response.response = None
+                    connection._send_rpc_response(rpc_response)
 
                 except Exception as stream_err:
                     self.logger.exception("Streaming RPC failed midway for method '%s'", method_name)
@@ -432,6 +440,11 @@ class server(Generic[H]):
 
         This method calls `start()` and then waits for the server to be closed.
 
+        .. code-block:: python
+
+            server = WebSocketServer("localhost", 5000)
+            await server.serve_forever()
+
         Args:
             **kwargs: Keyword arguments to pass to `picows_server.PicowsServer`.
 
@@ -492,6 +505,12 @@ class client:
     WebSocket connections, supporting both secure (WSS) and unsecure (WS) protocols.
     It manages the underlying connection life-cycle and handles automatic reconnection
     and message queuing.
+
+    .. code-block:: python
+
+        async with WebSocketClient("ws://localhost:5000") as client:
+            result = await client.send_rpc("ping")
+            print(result.data)
 
     Attributes:
         uri (str): The URI of the WebSocket server.
@@ -636,6 +655,11 @@ class client:
 
         Supports optional retry logic with exponential backoff.
 
+        .. code-block:: python
+
+            client = WebSocketClient("ws://localhost:5000")
+            await client.connect(retry=True, max_retry_attempt=5)
+
         Args:
             retry (bool): If True, attempts to reconnect multiple times on failure. Defaults to False.
             max_retry_attempt (int): The maximum number of retry attempts. Defaults to 3.
@@ -700,6 +724,26 @@ class client:
         raise_on_rate_limit: bool = True,
         **kwargs,
     ) -> AsyncGenerator[RPCResponse, None]:
+        """Calls an RPC method that streams results via async generator.
+
+        .. code-block:: python
+
+            async for response in client.stream_rpc("get_updates", max=5):
+                print(response.data)
+
+        Args:
+            method_name (str): The name of the RPC method to call.
+            *args: Positional arguments for the RPC method.
+            raise_on_rate_limit (bool): Whether to raise RateLimitError if exceeded. Defaults to True.
+            **kwargs: Keyword arguments for the RPC method.
+
+        Raises:
+            WebSocketError: If the client is not connected.
+            RateLimitError: If the server returns a RATE_LIMIT_EXCEEDED error and raise_on_rate_limit is True.
+
+        Yields:
+            RPCResponse: Each chunk of data yielded by the server.
+        """
         if (not self._client) or self.state != ConnectionState.CONNECTED:
             raise WebSocketError("Cannot send RPC: client is not connected.")
 
@@ -747,15 +791,26 @@ class client:
         raise_on_rate_limit: bool = False,
         **kwargs,
     ) -> RPCResponse:
-        """Sends an RPC message to the WebSocket server.
+        """Sends an RPC message to the WebSocket server and waits for the response.
+
+        .. code-block:: python
+
+            response = await client.send_rpc("add", 10, 20)
+            print(response.data)  # 30
 
         Args:
             method_name (str): The name of the RPC method to call.
-            raise_on_rate_limit (bool): If True, raises an exception if the RPC call fails.
+            *args: Positional arguments for the RPC method.
+            raise_on_rate_limit (bool): If True, raises RateLimitError if exceeded. Defaults to False.
+            **kwargs: Keyword arguments for the RPC method.
 
         Raises:
             WebSocketError: If the client is not connected.
+            RPCTimeoutError: If the request times out.
+            RateLimitError: If the server returns a RATE_LIMIT_EXCEEDED error and raise_on_rate_limit is True.
 
+        Returns:
+            RPCResponse: The response object from the server.
         """
         if (not self._client) or self.state != ConnectionState.CONNECTED:
             raise WebSocketError("Cannot send RPC: client is not connected.")
