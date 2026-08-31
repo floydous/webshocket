@@ -1,3 +1,5 @@
+
+
 [![docs](https://readthedocs.org/projects/web-shocket/badge/?style=flat)](https://web-shocket.readthedocs.io/)
 [![Build Status](https://github.com/floydous/webshocket/actions/workflows/tests.yml/badge.svg)](https://github.com/floydous/webshocket/actions/workflows/tests.yml)
 [![PyPI Downloads](https://pepy.tech/badge/webshocket)](https://pepy.tech/project/webshocket)
@@ -144,7 +146,7 @@ async def main():
     await client.connect(retry=True, max_retry_attempt=5, retry_interval=2)
 
     result = await client.send_rpc("add", 10, 20)
-    print(result.data)  # 30
+    print(result.response)  # 30
 ```
 
 </details>
